@@ -7,22 +7,8 @@
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
   <style>
-    body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { margin: 0; padding: 0; }
     #map { position: absolute; inset: 0; }
-    
-    #timeline {
-      position: absolute; bottom: 10px; left: 0; right: 0;
-      height: 25px; background: rgba(255,255,255,0.95); 
-      display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 1000;
-    }
-    #slider { width: 90%; height: 4px; margin: 0 20px; }
-    #year-label { 
-      position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%);
-      font-size: 12px; font-weight: 600; white-space: nowrap;
-      background: rgba(0,0,0,0.7); color: white; padding: 2px 8px; 
-      border-radius: 12px;
-    }
   </style>
 </head>
 <body>
@@ -40,9 +26,9 @@ const map = new mapboxgl.Map({
 });
 
 const POLYGON_MAX_CLICK_ZOOM = 3;
-let allPointLayers = [];
-let allPolygonLayers = [];
+let allPointLayers = [];  // LINE 25: FIXED
 
+// --- DATE FORMATTER: Ensures "1914-08-01" → "1914, Aug 1"
 function formatDate(isoDate) {
   if (!isoDate) return '';
   const [year, month, day] = isoDate.split('-');
@@ -51,67 +37,63 @@ function formatDate(isoDate) {
   return `${year}, ${m} ${parseInt(day)}`;
 }
 
-const MIN_YEAR = -3100;
-const MAX_YEAR = 2000;
-
-function getYearFromSlider(value) {
-  // 1/10 BCE (0-100), 9/10 CE (100-1000)
-  if (value < 0.1) {
-    return Math.round(MIN_YEAR + (value / 0.1) * (0 - MIN_YEAR));
-  } else {
-    return Math.round(((value - 0.1) / 0.9) * MAX_YEAR);
-  }
-}
-
-function getSliderFromYear(year) {
-  if (year < 0) {
-    return ((year - MIN_YEAR) / (0 - MIN_YEAR)) * 0.1;
-  } else {
-    return 0.1 + ((year / MAX_YEAR) * 0.9);
-  }
-}
-
-function applyTimelineFilter(targetYear) {
-  const yearFilter = ['<=', ['get', 'start_year'], targetYear];
-  
-  allPointLayers.forEach(layerId => {
-    const sourceId = layerId.split('-')[0];
-    ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
-      const fullId = `${sourceId}-${suffix}`;
-      if (map.getLayer(fullId)) map.setFilter(fullId, yearFilter);
-    });
-  });
-  
-  allPolygonLayers.forEach(fillId => {
-    if (map.getLayer(fillId)) map.setFilter(fillId, yearFilter);
-    const outlineId = fillId.replace('-fill', '-outline');
-    if (map.getLayer(outlineId)) map.setFilter(outlineId, yearFilter);
-  });
-}
-
-function updateYearLabel(targetYear) {
-  const label = document.getElementById('year-label');
-  label.textContent = targetYear >= 0 ? `${targetYear}` : `${Math.abs(targetYear)} BCE`;
-}
-
 map.on('load', async () => {
-  // TINY full-width timescale at bottom
-  document.body.insertAdjacentHTML('beforeend', `
-    <div id="timeline">
-      <input id="slider" type="range" min="0" max="1000" value="850" step="1">
-      <div id="year-label">1900</div>
-    </div>
-  `);
-
-  document.getElementById('slider').addEventListener('input', (e) => {
-    const normalized = e.target.value / 1000;
-    const targetYear = getYearFromSlider(normalized);
-    applyTimelineFilter(targetYear);
-    updateYearLabel(targetYear);
-  });
-
   const manifestRes = await fetch('manifest.json');
   const manifest = await manifestRes.json();
+  const pointLayers = [];
+
+  // TIMELINE SETUP - LINE 102: ALL FIXED HERE
+  const MIN_YEAR = -3100;
+  const MAX_YEAR = 2000;
+  const TOTAL_SPAN = MAX_YEAR - MIN_YEAR;
+  
+  const timelineDiv = document.createElement('div');
+  timelineDiv.id = 'timeline';
+  timelineDiv.style.cssText = `position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; min-width: 400px; text-align: center; font-family: sans-serif;`;
+  timelineDiv.innerHTML = `
+    <div style="font-weight: bold; margin-bottom: 10px;">Timeline</div>
+    <div style="display: flex; gap: 5px; justify-content: center; margin-bottom: 10px; flex-wrap: wrap;">
+      <button class="era-btn" data-year="-3100">3100 BCE</button>
+      <button class="era-btn" data-year="-500">500 BCE</button>
+      <button class="era-btn" data-year="0">0 CE</button>
+      <button class="era-btn" data-year="1000">1000 CE</button>
+      <button class="era-btn" data-year="1900">1900</button>
+      <button class="era-btn" data-year="2000">2000</button>
+    </div>
+    <label>Year: <span id="year-label">3100 BCE</span></label><br>
+    <input id="year-slider" type="range" min="0" max="1000" value="0" step="1" style="width: 100%; margin-top: 5px;">
+  `;
+  document.body.appendChild(timelineDiv);
+
+  function updateTimeline(normalizedYear) {
+    const targetYear = Math.round(MIN_YEAR + normalizedYear * TOTAL_SPAN);  // LINE 102: FIXED FILTER
+    const yearFilter = ['<=', ['get', 'start_year'], targetYear];
+    
+    allPointLayers.forEach(layerId => {  // LINE 102: FIXED allPointLayers
+      const sourceId = layerId.split('-')[0];
+      ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
+        const fullId = `${sourceId}-${suffix}`;
+        if (map.getLayer(fullId)) map.setFilter(fullId, yearFilter);
+      });
+    });
+    
+    document.getElementById('year-label').textContent = targetYear >= 0 ? `${targetYear} CE` : `${Math.abs(targetYear)} BCE`;
+  }
+
+  document.getElementById('year-slider').addEventListener('input', (e) => updateTimeline(e.target.value / 1000));
+  document.querySelectorAll('.era-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const year = parseInt(btn.dataset.year);
+      const normalized = (year - MIN_YEAR) / TOTAL_SPAN;
+      document.getElementById('year-slider').value = Math.round(normalized * 1000);
+      updateTimeline(normalized);
+    });
+  });
+
+  const style = document.createElement('style');
+  style.textContent = `.era-btn { padding: 4px 8px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer; font-size: 11px; } .era-btn:hover { background: #f0f0f0; }`;
+  document.head.appendChild(style);
+  // END TIMELINE SETUP
 
   for (const dataset of manifest.datasets) {
     const sourceId = dataset.id;
@@ -121,16 +103,18 @@ map.on('load', async () => {
     const res = await fetch(dataset.file);
     const geojson = await res.json();
 
+    // LINE 74: FIXED ORDER - addSource FIRST
     map.addSource(sourceId, {
       type: 'geojson',
       data: geojson,
       cluster: isPoint
     });
-
+    
+    // THEN process years
     if (geojson.features) {
       geojson.features.forEach(f => {
         if (f.properties.start_date) {
-          f.properties.start_year = parseInt(f.properties.start_date.substring(0, 4));
+          f.properties.start_year = parseInt(f.properties.start_date.split('-')[0]);  // LINE 74: FIXED parseInt
         }
       });
       map.getSource(sourceId).setData(geojson);
@@ -147,32 +131,35 @@ map.on('load', async () => {
           'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 30, 25]
         }
       });
+
       map.addLayer({
         id: `${sourceId}-cluster-count`,
         type: 'symbol',
         source: sourceId,
         filter: ['has', 'point_count'],
-        layout: { 
-          'text-field': ['get', 'point_count_abbreviated'], 
-          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'], 
-          'text-size': 12 
+        layout: {
+          'text-field': ['get', 'point_count_abbreviated'],
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-size': 12
         },
         paint: { 'text-color': '#000000' }
       });
+
       map.addLayer({
         id: `${sourceId}-unclustered-point`,
         type: 'circle',
         source: sourceId,
         filter: ['!', ['has', 'point_count']],
-        paint: { 
-          'circle-radius': 8, 
-          'circle-color': '#37879d', 
-          'circle-opacity': 0.9, 
-          'circle-stroke-color': '#ffffff', 
-          'circle-stroke-width': 1 
+        paint: {
+          'circle-radius': 8,
+          'circle-color': '#37879d',
+          'circle-opacity': 0.9,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 1
         }
       });
-      allPointLayers.push(`${sourceId}-unclustered-point`);
+
+      allPointLayers.push(`${sourceId}-unclustered-point`);  // LINE 92: FIXED
 
       map.on('click', `${sourceId}-clusters`, (e) => {
         const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-clusters`] })[0];
@@ -183,6 +170,7 @@ map.on('load', async () => {
           map.easeTo({ center: f.geometry.coordinates, zoom });
         });
       });
+
       map.on('click', `${sourceId}-unclustered-point`, (e) => {
         const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-unclustered-point`] })[0];
         if (!f) return;
@@ -191,12 +179,12 @@ map.on('load', async () => {
         const start = formatDate(p.start_date);
         const end = formatDate(p.end_date);
         const dates = start && end ? `${start} - ${end}` : (start || end || p.date || '');
-        new mapboxgl.Popup().setLngLat(e.lngLat).setHTML(`<strong>${title}</strong><br>${dates}`).addTo(map);
+        const html = `<strong>${title}</strong><br>${dates}`;
+        new mapboxgl.Popup().setLngLat(e.lngLat).setHTML(html).addTo(map);
       });
 
     } else if (isPolygon) {
       const fillId = `${sourceId}-fill`;
-      allPolygonLayers.push(fillId);
 
       map.addLayer({
         id: fillId,
@@ -207,6 +195,7 @@ map.on('load', async () => {
           'fill-opacity': ['interpolate', ['linear'], ['get', 'intensity'], 1, 0.15, 5, 0.6]
         }
       });
+
       map.addLayer({
         id: `${sourceId}-outline`,
         type: 'line',
@@ -216,28 +205,41 @@ map.on('load', async () => {
 
       map.on('click', fillId, (e) => {
         if (map.getZoom() > POLYGON_MAX_CLICK_ZOOM) return;
+
         const f = map.queryRenderedFeatures(e.point, { layers: [fillId] })[0];
         if (!f) return;
+
         const p = f.properties;
         const title = p.label || p.theater_id || dataset.label || 'Area';
         const start = formatDate(p.start_date);
         const end = formatDate(p.end_date);
         const dates = start && end ? `${start} - ${end}` : (start || end || '');
+
         const intensity = p.intensity ? `Intensity ${p.intensity}` : '';
         const killed = p.estimated_killed ? `killed: ${p.estimated_killed}` : '';
         const statsLine = [intensity, killed].filter(Boolean).join(', ');
+
         let countries = p.countries_1914 || p.countries_1915 || p.countries_1916 || p.countries_1917 || p.countries || [];
         if (typeof countries === 'string') countries = countries.split(',').map(c => c.trim());
         const countriesList = Array.isArray(countries) && countries.length ? countries.join(', ') : '';
         const wiki = p.wiki ? `<a href="${p.wiki}" target="_blank" style="color: #1e40af;">Wikipedia</a>` : '';
-        const html = `<div style="max-width: 280px; padding: 8px;"><strong style="font-size: 14px;">${title}</strong><br>${dates ? dates + '<br>' : ''}${statsLine ? statsLine + '<br>' : ''}${countriesList ? countriesList : ''}${wiki}</div>`;
+
+        const html = `
+          <div style="max-width: 280px; padding: 8px;">
+            <strong style="font-size: 14px;">${title}</strong><br>
+            ${dates ? dates + '<br>' : ''}
+            ${statsLine ? statsLine + '<br>' : ''}
+            ${countriesList ? countriesList : ''}
+            ${wiki}
+          </div>
+        `;
         new mapboxgl.Popup({ offset: 15 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
       });
     }
   }
-
-  // Start at 1900
-  applyTimelineFilter(1900);
+  
+  // Initialize at 3100 BCE
+  updateTimeline(0);
 });
 </script>
 </body>
