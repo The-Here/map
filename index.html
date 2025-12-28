@@ -12,235 +12,288 @@
   </style>
 </head>
 <body>
+<!-- ===================================================== -->
+<!-- ==================== MAP CONTAINER =================== -->
+<!-- ===================================================== -->
 <div id="map"></div>
+
 <script>
-mapboxgl.accessToken = 'pk.eyJ1Ijoibm9ydGhlZGRhIiwiYSI6ImNtYmVjczJ4cTFndnEycW42cnFwbjBjbzcifQ.XYvDSeoj0uD6K8WpK5v0mQ';
-const map = new mapboxgl.Map({
-  container: 'map',
-  style: 'mapbox://styles/mapbox/light-v11',
-  projection: 'mercator',
-  center: [0, 20],
-  zoom: 1,
-  minZoom: 1,
-  maxZoom: 12
-});
-
-const POLYGON_MAX_CLICK_ZOOM = 3;
-let allPointLayers = [];  // LINE 25: FIXED
-
-// --- DATE FORMATTER: Ensures "1914-08-01" → "1914, Aug 1"
-function formatDate(isoDate) {
-  if (!isoDate) return '';
-  const [year, month, day] = isoDate.split('-');
-  const shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const m = shortMonths[parseInt(month) - 1];
-  return `${year}, ${m} ${parseInt(day)}`;
-}
-
-map.on('load', async () => {
-  const manifestRes = await fetch('manifest.json');
-  const manifest = await manifestRes.json();
-  const pointLayers = [];
-
-  // TIMELINE SETUP - LINE 102: ALL FIXED HERE
-  const MIN_YEAR = -3100;
-  const MAX_YEAR = 2000;
-  const TOTAL_SPAN = MAX_YEAR - MIN_YEAR;
-  
-  const timelineDiv = document.createElement('div');
-  timelineDiv.id = 'timeline';
-  timelineDiv.style.cssText = `position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; min-width: 400px; text-align: center; font-family: sans-serif;`;
-  timelineDiv.innerHTML = `
-    <div style="font-weight: bold; margin-bottom: 10px;">Timeline</div>
-    <div style="display: flex; gap: 5px; justify-content: center; margin-bottom: 10px; flex-wrap: wrap;">
-      <button class="era-btn" data-year="-3100">3100 BCE</button>
-      <button class="era-btn" data-year="-500">500 BCE</button>
-      <button class="era-btn" data-year="0">0 CE</button>
-      <button class="era-btn" data-year="1000">1000 CE</button>
-      <button class="era-btn" data-year="1900">1900</button>
-      <button class="era-btn" data-year="2000">2000</button>
-    </div>
-    <label>Year: <span id="year-label">3100 BCE</span></label><br>
-    <input id="year-slider" type="range" min="0" max="1000" value="0" step="1" style="width: 100%; margin-top: 5px;">
-  `;
-  document.body.appendChild(timelineDiv);
-
-  function updateTimeline(normalizedYear) {
-    const targetYear = Math.round(MIN_YEAR + normalizedYear * TOTAL_SPAN);  // LINE 102: FIXED FILTER
-    const yearFilter = ['<=', ['get', 'start_year'], targetYear];
-    
-    allPointLayers.forEach(layerId => {  // LINE 102: FIXED allPointLayers
-      const sourceId = layerId.split('-')[0];
-      ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
-        const fullId = `${sourceId}-${suffix}`;
-        if (map.getLayer(fullId)) map.setFilter(fullId, yearFilter);
-      });
-    });
-    
-    document.getElementById('year-label').textContent = targetYear >= 0 ? `${targetYear} CE` : `${Math.abs(targetYear)} BCE`;
-  }
-
-  document.getElementById('year-slider').addEventListener('input', (e) => updateTimeline(e.target.value / 1000));
-  document.querySelectorAll('.era-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const year = parseInt(btn.dataset.year);
-      const normalized = (year - MIN_YEAR) / TOTAL_SPAN;
-      document.getElementById('year-slider').value = Math.round(normalized * 1000);
-      updateTimeline(normalized);
-    });
+  // =====================================================
+  // ==================== MAP INITIALIZATION =============
+  // =====================================================
+  mapboxgl.accessToken = 'pk.eyJ1Ijoibm9ydGhlZGRhIiwiYSI6ImNtYmVjczJ4cTFndnEycW42cnFwbjBjbzcifQ.XYvDSeoj0uD6K8WpK5v0mQ';
+  const map = new mapboxgl.Map({
+    container: 'map',                           // MAP: Targets the #map div above
+    style: 'mapbox://styles/mapbox/light-v11',  // MAP: Base map style (light theme)
+    projection: 'mercator',                     // MAP: Flat 2D projection (no globe)
+    center: [0, 20],                            // MAP: Center position (longitude, latitude)
+    zoom: 1,                                    // MAP: Initial zoom level
+    minZoom: 1,                                 // MAP: Minimum zoom limit
+    maxZoom: 12                                 // MAP: Maximum zoom limit
   });
 
-  const style = document.createElement('style');
-  style.textContent = `.era-btn { padding: 4px 8px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer; font-size: 11px; } .era-btn:hover { background: #f0f0f0; }`;
-  document.head.appendChild(style);
-  // END TIMELINE SETUP
+  // =====================================================
+  // ==================== GLOBAL VARIABLES ===============
+  // =====================================================
+  const POLYGON_MAX_CLICK_ZOOM = 3;             // POPUP: Max zoom for polygon click popups
+  let allPointLayers = [];                      // TIMELINE: Tracks all point layers for filtering
 
-  for (const dataset of manifest.datasets) {
-    const sourceId = dataset.id;
-    const isPoint = dataset.geometryType === 'point';
-    const isPolygon = dataset.geometryType === 'polygon';
+  // =====================================================
+  // ==================== UTILITY FUNCTIONS ==============
+  // =====================================================
+  // FORMATTER: Converts "1914-08-01" → "1914, Aug 1" (USED BY POPUPS)
+  function formatDate(isoDate) {
+    if (!isoDate) return '';
+    const [year, month, day] = isoDate.split('-');
+    const shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const m = shortMonths[parseInt(month) - 1];
+    return `${year}, ${m} ${parseInt(day)}`;
+  }
 
-    const res = await fetch(dataset.file);
-    const geojson = await res.json();
-
-    // LINE 74: FIXED ORDER - addSource FIRST
-    map.addSource(sourceId, {
-      type: 'geojson',
-      data: geojson,
-      cluster: isPoint
-    });
+  // =====================================================
+  // ==================== MAIN MAP LOAD EVENT =============
+  // =====================================================
+  map.on('load', async () => {
+    // ===================================================
+    // ==================== TIMELINE SETUP ================
+    // ===================================================
+    const MIN_YEAR = -3100;
+    const MAX_YEAR = 2000;
+    const TOTAL_SPAN = MAX_YEAR - MIN_YEAR;
     
-    // THEN process years
-    if (geojson.features) {
-      geojson.features.forEach(f => {
-        if (f.properties.start_date) {
-          f.properties.start_year = parseInt(f.properties.start_date.split('-')[0]);  // LINE 74: FIXED parseInt
-        }
-      });
-      map.getSource(sourceId).setData(geojson);
-    }
+    // TIMELINE: Creates the timeline UI at top-center
+    const timelineDiv = document.createElement('div');
+    timelineDiv.id = 'timeline';
+    timelineDiv.style.cssText = `position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; min-width: 400px; text-align: center; font-family: sans-serif;`;
+    timelineDiv.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 10px;">Timeline</div>
+      <div style="display: flex; gap: 5px; justify-content: center; margin-bottom: 10px; flex-wrap: wrap;">
+        <button class="era-btn" data-year="-3100">3100 BCE</button>
+        <button class="era-btn" data-year="-500">500 BCE</button>
+        <button class="era-btn" data-year="0">0 CE</button>
+        <button class="era-btn" data-year="1000">1000 CE</button>
+        <button class="era-btn" data-year="1900">1900</button>
+        <button class="era-btn" data-year="2000">2000</button>
+      </div>
+      <label>Year: <span id="year-label">3100 BCE</span></label><br>
+      <input id="year-slider" type="range" min="0" max="1000" value="0" step="1" style="width: 100%; margin-top: 5px;">
+    `;
+    document.body.appendChild(timelineDiv);
 
-    if (isPoint) {
-      map.addLayer({
-        id: `${sourceId}-clusters`,
-        type: 'circle',
-        source: sourceId,
-        filter: ['has', 'point_count'],
-        paint: {
-          'circle-color': ['step', ['get', 'point_count'], '#51bbd6', 10, '#f1f075', 30, '#f28cb1'],
-          'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 30, 25]
-        }
-      });
-
-      map.addLayer({
-        id: `${sourceId}-cluster-count`,
-        type: 'symbol',
-        source: sourceId,
-        filter: ['has', 'point_count'],
-        layout: {
-          'text-field': ['get', 'point_count_abbreviated'],
-          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-          'text-size': 12
-        },
-        paint: { 'text-color': '#000000' }
-      });
-
-      map.addLayer({
-        id: `${sourceId}-unclustered-point`,
-        type: 'circle',
-        source: sourceId,
-        filter: ['!', ['has', 'point_count']],
-        paint: {
-          'circle-radius': 8,
-          'circle-color': '#37879d',
-          'circle-opacity': 0.9,
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 1
-        }
-      });
-
-      allPointLayers.push(`${sourceId}-unclustered-point`);  // LINE 92: FIXED
-
-      map.on('click', `${sourceId}-clusters`, (e) => {
-        const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-clusters`] })[0];
-        if (!f) return;
-        const clusterId = f.properties.cluster_id;
-        map.getSource(sourceId).getClusterExpansionZoom(clusterId, (err, zoom) => {
-          if (err) return;
-          map.easeTo({ center: f.geometry.coordinates, zoom });
+    // TIMELINE: Core filtering function - hides/shows layers by year
+    function updateTimeline(normalizedYear) {
+      const targetYear = Math.round(MIN_YEAR + normalizedYear * TOTAL_SPAN);
+      const yearFilter = ['<=', ['get', 'start_year'], targetYear];  // TIMELINE: Filter shows events <= target year
+      
+      // TIMELINE: Apply filter to ALL point layers (clusters + single points)
+      allPointLayers.forEach(layerId => {
+        const sourceId = layerId.split('-')[0];
+        ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
+          const fullId = `${sourceId}-${suffix}`;
+          if (map.getLayer(fullId)) map.setFilter(fullId, yearFilter);
         });
       });
-
-      map.on('click', `${sourceId}-unclustered-point`, (e) => {
-        const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-unclustered-point`] })[0];
-        if (!f) return;
-        const p = f.properties;
-        const title = p.label || p.id || dataset.label || 'Event';
-        const start = formatDate(p.start_date);
-        const end = formatDate(p.end_date);
-        const dates = start && end ? `${start} - ${end}` : (start || end || p.date || '');
-        const html = `<strong>${title}</strong><br>${dates}`;
-        new mapboxgl.Popup().setLngLat(e.lngLat).setHTML(html).addTo(map);
-      });
-
-    } else if (isPolygon) {
-      const fillId = `${sourceId}-fill`;
-
-      map.addLayer({
-        id: fillId,
-        type: 'fill',
-        source: sourceId,
-        paint: {
-          'fill-color': ['interpolate', ['linear'], ['get', 'intensity'], 1, '#fee2e2', 3, '#f97373', 5, '#7f1d1d'],
-          'fill-opacity': ['interpolate', ['linear'], ['get', 'intensity'], 1, 0.15, 5, 0.6]
-        }
-      });
-
-      map.addLayer({
-        id: `${sourceId}-outline`,
-        type: 'line',
-        source: sourceId,
-        paint: { 'line-color': '#111827', 'line-width': 0.5 }
-      });
-
-      map.on('click', fillId, (e) => {
-        if (map.getZoom() > POLYGON_MAX_CLICK_ZOOM) return;
-
-        const f = map.queryRenderedFeatures(e.point, { layers: [fillId] })[0];
-        if (!f) return;
-
-        const p = f.properties;
-        const title = p.label || p.theater_id || dataset.label || 'Area';
-        const start = formatDate(p.start_date);
-        const end = formatDate(p.end_date);
-        const dates = start && end ? `${start} - ${end}` : (start || end || '');
-
-        const intensity = p.intensity ? `Intensity ${p.intensity}` : '';
-        const killed = p.estimated_killed ? `killed: ${p.estimated_killed}` : '';
-        const statsLine = [intensity, killed].filter(Boolean).join(', ');
-
-        let countries = p.countries_1914 || p.countries_1915 || p.countries_1916 || p.countries_1917 || p.countries || [];
-        if (typeof countries === 'string') countries = countries.split(',').map(c => c.trim());
-        const countriesList = Array.isArray(countries) && countries.length ? countries.join(', ') : '';
-        const wiki = p.wiki ? `<a href="${p.wiki}" target="_blank" style="color: #1e40af;">Wikipedia</a>` : '';
-
-        const html = `
-          <div style="max-width: 280px; padding: 8px;">
-            <strong style="font-size: 14px;">${title}</strong><br>
-            ${dates ? dates + '<br>' : ''}
-            ${statsLine ? statsLine + '<br>' : ''}
-            ${countriesList ? countriesList : ''}
-            ${wiki}
-          </div>
-        `;
-        new mapboxgl.Popup({ offset: 15 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
-      });
+      
+      // TIMELINE: Update year display
+      document.getElementById('year-label').textContent = targetYear >= 0 ? `${targetYear} CE` : `${Math.abs(targetYear)} BCE`;
     }
-  }
-  
-  // Initialize at 3100 BCE
-  updateTimeline(0);
-});
+
+    // TIMELINE: Slider event - updates filter when dragged
+    document.getElementById('year-slider').addEventListener('input', (e) => updateTimeline(e.target.value / 1000));
+    
+    // TIMELINE: Era button events - jump to specific years
+    document.querySelectorAll('.era-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const year = parseInt(btn.dataset.year);
+        const normalized = (year - MIN_YEAR) / TOTAL_SPAN;
+        document.getElementById('year-slider').value = Math.round(normalized * 1000);
+        updateTimeline(normalized);
+      });
+    });
+
+    // TIMELINE: Era button styling
+    const style = document.createElement('style');
+    style.textContent = `.era-btn { padding: 4px 8px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer; font-size: 11px; } .era-btn:hover { background: #f0f0f0; }`;
+    document.head.appendChild(style);
+    // ==================== END TIMELINE ===================
+
+    // ===================================================
+    // ==================== DATASET LOADING ================
+    // ===================================================
+    const manifestRes = await fetch('manifest.json');
+    const manifest = await manifestRes.json();
+
+    for (const dataset of manifest.datasets) {
+      const sourceId = dataset.id;
+      const isPoint = dataset.geometryType === 'point';     // MAP: Point data (events)
+      const isPolygon = dataset.geometryType === 'polygon'; // MAP: Polygon data (areas)
+
+      const res = await fetch(dataset.file);
+      const geojson = await res.json();
+
+      // MAP: Add data source FIRST (before processing)
+      map.addSource(sourceId, {
+        type: 'geojson',
+        data: geojson,
+        cluster: isPoint  // MAP: Enable clustering for points only
+      });
+      
+      // MAP: Extract year from start_date for timeline filtering
+      if (geojson.features) {
+        geojson.features.forEach(f => {
+          if (f.properties.start_date) {
+            f.properties.start_year = parseInt(f.properties.start_date.split('-')[0]);
+          }
+        });
+        map.getSource(sourceId).setData(geojson);
+      }
+
+      // =================================================
+      // ==================== POINT LAYERS ===============
+      // =================================================
+      if (isPoint) {
+        // MAP: Cluster layer (groups nearby points)
+        map.addLayer({
+          id: `${sourceId}-clusters`,
+          type: 'circle',
+          source: sourceId,
+          filter: ['has', 'point_count'],
+          paint: {
+            'circle-color': ['step', ['get', 'point_count'], '#51bbd6', 10, '#f1f075', 30, '#f28cb1'],
+            'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 30, 25]
+          }
+        });
+
+        // MAP: Cluster count labels
+        map.addLayer({
+          id: `${sourceId}-cluster-count`,
+          type: 'symbol',
+          source: sourceId,
+          filter: ['has', 'point_count'],
+          layout: {
+            'text-field': ['get', 'point_count_abbreviated'],
+            'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+            'text-size': 12
+          },
+          paint: { 'text-color': '#000000' }
+        });
+
+        // MAP: Individual points (non-clustered)
+        map.addLayer({
+          id: `${sourceId}-unclustered-point`,
+          type: 'circle',
+          source: sourceId,
+          filter: ['!', ['has', 'point_count']],
+          paint: {
+            'circle-radius': 8,
+            'circle-color': '#37879d',
+            'circle-opacity': 0.9,
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 1
+          }
+        });
+
+        // TIMELINE: Track this layer for time filtering
+        allPointLayers.push(`${sourceId}-unclustered-point`);
+
+        // ===============================================
+        // ==================== POINT EVENTS ==============
+        // ===============================================
+        // EVENT: Click cluster → zoom into it
+        map.on('click', `${sourceId}-clusters`, (e) => {
+          const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-clusters`] })[0];
+          if (!f) return;
+          const clusterId = f.properties.cluster_id;
+          map.getSource(sourceId).getClusterExpansionZoom(clusterId, (err, zoom) => {
+            if (err) return;
+            map.easeTo({ center: f.geometry.coordinates, zoom });
+          });
+        });
+
+        // EVENT + POPUP: Click single point → show popup
+        map.on('click', `${sourceId}-unclustered-point`, (e) => {
+          const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-unclustered-point`] })[0];
+          if (!f) return;
+          const p = f.properties;
+          const title = p.label || p.id || dataset.label || 'Event';
+          const start = formatDate(p.start_date);
+          const end = formatDate(p.end_date);
+          const dates = start && end ? `${start} - ${end}` : (start || end || p.date || '');
+          const html = `<strong>${title}</strong><br>${dates}`;  // POPUP: Simple event popup
+          new mapboxgl.Popup().setLngLat(e.lngLat).setHTML(html).addTo(map);
+        });
+
+      // =================================================
+      // ==================== POLYGON LAYERS =============
+      // =================================================
+      } else if (isPolygon) {
+        const fillId = `${sourceId}-fill`;
+
+        // MAP: Colored polygon fills (by intensity)
+        map.addLayer({
+          id: fillId,
+          type: 'fill',
+          source: sourceId,
+          paint: {
+            'fill-color': ['interpolate', ['linear'], ['get', 'intensity'], 1, '#fee2e2', 3, '#f97373', 5, '#7f1d1d'],
+            'fill-opacity': ['interpolate', ['linear'], ['get', 'intensity'], 1, 0.15, 5, 0.6]
+          }
+        });
+
+        // MAP: Polygon outlines
+        map.addLayer({
+          id: `${sourceId}-outline`,
+          type: 'line',
+          source: sourceId,
+          paint: { 'line-color': '#111827', 'line-width': 0.5 }
+        });
+
+        // ===============================================
+        // ==================== POLYGON EVENT + POPUP ====
+        // ===============================================
+        // EVENT + POPUP: Click polygon → detailed popup
+        map.on('click', fillId, (e) => {
+          if (map.getZoom() > POLYGON_MAX_CLICK_ZOOM) return;  // Only at low zoom
+
+          const f = map.queryRenderedFeatures(e.point, { layers: [fillId] })[0];
+          if (!f) return;
+
+          const p = f.properties;
+          const title = p.label || p.theater_id || dataset.label || 'Area';
+          const start = formatDate(p.start_date);
+          const end = formatDate(p.end_date);
+          const dates = start && end ? `${start} - ${end}` : (start || end || '');
+
+          // POPUP: Build detailed content
+          const intensity = p.intensity ? `Intensity ${p.intensity}` : '';
+          const killed = p.estimated_killed ? `killed: ${p.estimated_killed}` : '';
+          const statsLine = [intensity, killed].filter(Boolean).join(', ');
+
+          let countries = p.countries_1914 || p.countries_1915 || p.countries_1916 || p.countries_1917 || p.countries || [];
+          if (typeof countries === 'string') countries = countries.split(',').map(c => c.trim());
+          const countriesList = Array.isArray(countries) && countries.length ? countries.join(', ') : '';
+          const wiki = p.wiki ? `<a href="${p.wiki}" target="_blank" style="color: #1e40af;">Wikipedia</a>` : '';
+
+          const html = `
+            <div style="max-width: 280px; padding: 8px;">
+              <strong style="font-size: 14px;">${title}</strong><br>
+              ${dates ? dates + '<br>' : ''}
+              ${statsLine ? statsLine + '<br>' : ''}
+              ${countriesList ? countriesList : ''}
+              ${wiki}
+            </div>
+          `;
+          new mapboxgl.Popup({ offset: 15 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+        });
+      }
+    }
+    
+    // ===================================================
+    // ==================== INITIALIZE TIMELINE ===========
+    // ===================================================
+    // TIMELINE: Start at 3100 BCE (slider position 0)
+    updateTimeline(0);
+  });
 </script>
 </body>
 </html>
