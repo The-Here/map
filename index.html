@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>The Here — Map (Disproportional Timeline)</title>
+  <title>The Here — Map (Interactive Timeline)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
@@ -10,36 +10,51 @@
     body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
     #map { position: absolute; inset: 0; }
 
+    /* Timeline stays fixed at bottom */
     #timeline {
-      position: absolute; bottom: 10px; left: 0; right: 0;
-      height: 25px; background: rgba(255,255,255,0.95); 
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 45px;
+      background: rgba(255,255,255,0.95);
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 1000;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.15);
+      z-index: 1000;
     }
-    
+
+    /* Slider bar */
     #slider { 
-      width: 90%; height: 4px; margin: 0 20px; 
+      width: 90%; height: 5px;
       -webkit-appearance: none; appearance: none;
-      background: #ddd; border-radius: 2px; outline: none;
+      background: #ddd; border-radius: 3px; outline: none;
+      position: relative;
     }
     #slider::-webkit-slider-thumb {
       -webkit-appearance: none; appearance: none;
-      width: 18px; height: 18px; background: #37879d;
-      border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      width: 16px; height: 16px;
+      background: #37879d; border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
     }
     #slider::-moz-range-thumb {
-      width: 18px; height: 18px; background: #37879d;
-      border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      width: 16px; height: 16px;
+      background: #37879d; border-radius: 50%;
+      cursor: pointer;
       border: none;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
     }
 
-    #year-label { 
-      position: absolute; bottom: 28px;
-      font-size: 13px; font-weight: 600; 
-      background: #37879d; color: white; padding: 4px 10px; 
-      border-radius: 15px; white-space: nowrap;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      transition: all 0.1s ease; pointer-events: none;
+    /* Year label sits just above thumb */
+    #year-label {
+      position: absolute;
+      bottom: 35px; /* closer to slider */
+      font-size: 13px; font-weight: 700;
+      background: #37879d; color: #fff;
+      padding: 4px 10px; border-radius: 12px;
+      white-space: nowrap;
+      transform: translateX(-50%);
+      pointer-events: none;
+      transition: bottom 0.1s ease;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
     }
   </style>
 </head>
@@ -48,227 +63,147 @@
 
 <script>
 mapboxgl.accessToken = 'pk.eyJ1Ijoibm9ydGhlZGRhIiwiYSI6ImNtYmVjczJ4cTFndnEycW42cnFwbjBjbzcifQ.XYvDSeoj0uD6K8WpK5v0mQ';
-
 const map = new mapboxgl.Map({
   container: 'map',
   style: 'mapbox://styles/mapbox/light-v11',
   center: [0, 20],
-  zoom: 1,
-  minZoom: 1,
-  maxZoom: 12,
-  scrollZoom: false
+  zoom: 1
 });
 
 const POLYGON_MAX_CLICK_ZOOM = 3;
 let allPointLayers = [];
 let allPolygonLayers = [];
 
-// ✅ DISPROPORTIONAL TIMELINE SEGMENTS (exactly as requested)
-const TIME_SEGMENTS = [
-  { sliderStart: 0,   sliderEnd: 100,   yearStart: -3100, yearEnd: 0 },      // 1/10: 3100BCE → 0
-  { sliderStart: 100, sliderEnd: 200,   yearStart: 0,     yearEnd: 1600 },  // 1/10: 0 → 1600
-  { sliderStart: 200, sliderEnd: 300,   yearStart: 1600,  yearEnd: 1700 },  // 1/10: 1600 → 1700
-  { sliderStart: 300, sliderEnd: 400,   yearStart: 1700,  yearEnd: 1800 },  // 1/10: 1700 → 1800
-  { sliderStart: 400, sliderEnd: 500,   yearStart: 1800,  yearEnd: 1850 },  // 1/10: 1800 → 1850
-  { sliderStart: 500, sliderEnd: 600,   yearStart: 1850,  yearEnd: 1900 },  // 1/10: 1850 → 1900
-  { sliderStart: 600, sliderEnd: 700,   yearStart: 1900,  yearEnd: 1950 },  // 1/10: 1900 → 1950
-  { sliderStart: 700, sliderEnd: 800,   yearStart: 1950,  yearEnd: 1975 },  // 1/10: 1950 → 1975
-  { sliderStart: 800, sliderEnd: 900,   yearStart: 1975,  yearEnd: 2000 },  // 1/10: 1975 → 2000
-  { sliderStart: 900, sliderEnd: 1000,  yearStart: 2000,  yearEnd: 2000 }   // 1/10: Empty (future)
-];
-
-function sliderToYear(sliderValue) {
-  for (const segment of TIME_SEGMENTS) {
-    if (sliderValue >= segment.sliderStart && sliderValue <= segment.sliderEnd) {
-      const segmentProgress = (sliderValue - segment.sliderStart) / (segment.sliderEnd - segment.sliderStart);
-      return Math.round(segment.yearStart + segmentProgress * (segment.yearEnd - segment.yearStart));
-    }
-  }
-  return 2000; // Default to end
-}
-
 function formatDate(isoDate) {
   if (!isoDate) return '';
-  const [year, month, day] = isoDate.split('-');
-  const shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return `${year}, ${shortMonths[parseInt(month) - 1]} ${parseInt(day)}`;
+  const [y, m, d] = isoDate.split('-');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${y}, ${months[parseInt(m)-1]} ${parseInt(d)}`;
 }
 
-function applyTimelineFilter(targetYear) {
-  const yearFilter = ['<=', ['get', 'start_year'], targetYear];
-  allPointLayers.forEach(layerId => {
-    const sourceId = layerId.split('-')[0];
-    ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
-      const fullId = `${sourceId}-${suffix}`;
-      if (map.getLayer(fullId)) map.setFilter(fullId, yearFilter);
+const MIN_YEAR = -3100;
+const MAX_YEAR = 2000;
+
+function getYearFromSlider(value) {
+  const v = value / 1000;
+  return v < 0.1 
+    ? Math.round(MIN_YEAR + (v / 0.1) * (0 - MIN_YEAR))
+    : Math.round(((v - 0.1) / 0.9) * MAX_YEAR);
+}
+
+function applyTimelineFilter(year) {
+  const filter = ['<=', ['get', 'start_year'], year];
+  allPointLayers.forEach(id => {
+    const src = id.split('-')[0];
+    ['clusters', 'cluster-count', 'unclustered-point'].forEach(sfx => {
+      const lid = `${src}-${sfx}`;
+      if (map.getLayer(lid)) map.setFilter(lid, filter);
     });
   });
-  allPolygonLayers.forEach(fillId => {
-    if (map.getLayer(fillId)) map.setFilter(fillId, yearFilter);
-    const outlineId = fillId.replace('-fill', '-outline');
-    if (map.getLayer(outlineId)) map.setFilter(outlineId, yearFilter);
+  allPolygonLayers.forEach(fid => {
+    if (map.getLayer(fid)) map.setFilter(fid, filter);
+    const outline = fid.replace('-fill', '-outline');
+    if (map.getLayer(outline)) map.setFilter(outline, filter);
   });
 }
 
-function updateYearLabel(targetYear, sliderValue) {
+function updateYearLabel(year) {
   const label = document.getElementById('year-label');
   const slider = document.getElementById('slider');
-  
-  label.textContent = targetYear >= 0 ? `${targetYear}` : `${Math.abs(targetYear)} BCE`;
-  
-  const sliderRect = slider.getBoundingClientRect();
-  const percent = sliderValue / 1000;
-  const thumbX = sliderRect.left + percent * sliderRect.width;
-  label.style.left = `${thumbX}px`;
+  label.textContent = year >= 0 ? `${year}` : `${Math.abs(year)} BCE`;
+
+  const rect = slider.getBoundingClientRect();
+  const percent = (slider.value - slider.min) / (slider.max - slider.min);
+  const x = rect.left + percent * rect.width;
+  label.style.left = `${x}px`;
 }
 
 map.on('load', async () => {
   document.body.insertAdjacentHTML('beforeend', `
     <div id="timeline">
       <input id="slider" type="range" min="0" max="1000" value="850" step="1">
-      <div id="year-label">1975</div>
+      <div id="year-label">1900</div>
     </div>
   `);
 
   const slider = document.getElementById('slider');
-  
-  slider.addEventListener('input', (e) => {
-    const sliderValue = parseFloat(e.target.value);
-    const targetYear = sliderToYear(sliderValue);
-    applyTimelineFilter(targetYear);
-    updateYearLabel(targetYear, sliderValue);
+  slider.addEventListener('input', e => {
+    const year = getYearFromSlider(+e.target.value);
+    applyTimelineFilter(year);
+    updateYearLabel(year);
   });
 
-  // Initial position (1975)
-  const initialYear = sliderToYear(850);
-  updateYearLabel(initialYear, 850);
-  applyTimelineFilter(initialYear);
+  window.addEventListener('resize', () =>
+    updateYearLabel(getYearFromSlider(slider.value))
+  );
+
+  updateYearLabel(1900);
 
   const manifestRes = await fetch('manifest.json');
   const manifest = await manifestRes.json();
 
   for (const dataset of manifest.datasets) {
-    const sourceId = dataset.id;
-    const isPoint = dataset.geometryType === 'point';
-    const isPolygon = dataset.geometryType === 'polygon';
+    const srcId = dataset.id;
+    const isPt = dataset.geometryType === 'point';
+    const isPoly = dataset.geometryType === 'polygon';
 
     const res = await fetch(dataset.file);
-    const geojson = await res.json();
+    const geo = await res.json();
 
-    map.addSource(sourceId, {
-      type: 'geojson',
-      data: geojson,
-      cluster: isPoint
+    map.addSource(srcId, { type: 'geojson', data: geo, cluster: isPt });
+
+    geo.features?.forEach(f => {
+      if (f.properties.start_date) 
+        f.properties.start_year = parseInt(f.properties.start_date.substring(0,4));
     });
+    map.getSource(srcId).setData(geo);
 
-    if (geojson.features) {
-      geojson.features.forEach(f => {
-        if (f.properties.start_date) {
-          f.properties.start_year = parseInt(f.properties.start_date.substring(0, 4));
-        }
-      });
-      map.getSource(sourceId).setData(geojson);
-    }
-
-    if (isPoint) {
+    if (isPt) {
+      // point layers...
       map.addLayer({
-        id: `${sourceId}-clusters`,
+        id: `${srcId}-clusters`,
         type: 'circle',
-        source: sourceId,
+        source: srcId,
         filter: ['has', 'point_count'],
         paint: {
-          'circle-color': ['step', ['get', 'point_count'], '#51bbd6', 10, '#f1f075', 30, '#f28cb1'],
-          'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 30, 25]
+          'circle-color': ['step',['get','point_count'],'#51bbd6',10,'#f1f075',30,'#f28cb1'],
+          'circle-radius': ['step',['get','point_count'],15,10,20,30,25]
         }
       });
       map.addLayer({
-        id: `${sourceId}-cluster-count`,
+        id: `${srcId}-cluster-count`,
         type: 'symbol',
-        source: sourceId,
-        filter: ['has', 'point_count'],
-        layout: { 
-          'text-field': ['get', 'point_count_abbreviated'], 
-          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'], 
-          'text-size': 12 
-        },
-        paint: { 'text-color': '#000000' }
+        source: srcId,
+        filter: ['has','point_count'],
+        layout: {'text-field':['get','point_count_abbreviated'],'text-size':12},
+        paint:{'text-color':'#000'}
       });
       map.addLayer({
-        id: `${sourceId}-unclustered-point`,
+        id: `${srcId}-unclustered-point`,
         type: 'circle',
-        source: sourceId,
+        source: srcId,
         filter: ['!', ['has', 'point_count']],
-        paint: { 
-          'circle-radius': 8, 
-          'circle-color': '#37879d', 
-          'circle-opacity': 0.9, 
-          'circle-stroke-color': '#ffffff', 
-          'circle-stroke-width': 1 
-        }
+        paint: {'circle-radius':8,'circle-color':'#37879d','circle-stroke-color':'#fff','circle-stroke-width':1}
       });
-      allPointLayers.push(`${sourceId}-unclustered-point`);
-
-      map.on('click', `${sourceId}-clusters`, (e) => {
-        const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-clusters`] })[0];
-        if (!f) return;
-        const clusterId = f.properties.cluster_id;
-        map.getSource(sourceId).getClusterExpansionZoom(clusterId, (err, zoom) => {
-          if (err) return;
-          map.easeTo({ center: f.geometry.coordinates, zoom });
-        });
-      });
-      map.on('click', `${sourceId}-unclustered-point`, (e) => {
-        const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-unclustered-point`] })[0];
-        if (!f) return;
-        const p = f.properties;
-        const title = p.label || p.id || dataset.label || 'Event';
-        const start = formatDate(p.start_date);
-        const end = formatDate(p.end_date);
-        const dates = start && end ? `${start} - ${end}` : (start || end || p.date || '');
-        new mapboxgl.Popup().setLngLat(e.lngLat).setHTML(`<strong>${title}</strong><br>${dates}`).addTo(map);
-      });
-
-    } else if (isPolygon) {
-      const fillId = `${sourceId}-fill`;
+      allPointLayers.push(`${srcId}-unclustered-point`);
+    } else if (isPoly) {
+      const fillId = `${srcId}-fill`;
       allPolygonLayers.push(fillId);
-
       map.addLayer({
-        id: fillId,
-        type: 'fill',
-        source: sourceId,
+        id: fillId, type: 'fill', source: srcId,
         paint: {
-          'fill-color': ['interpolate', ['linear'], ['get', 'intensity'], 1, '#fee2e2', 3, '#f97373', 5, '#7f1d1d'],
-          'fill-opacity': ['interpolate', ['linear'], ['get', 'intensity'], 1, 0.15, 5, 0.6]
+          'fill-color': ['interpolate', ['linear'], ['get', 'intensity'],
+                         1, '#fee2e2', 3, '#f97373', 5, '#7f1d1d'],
+          'fill-opacity': ['interpolate', ['linear'], ['get', 'intensity'],
+                           1, 0.15, 5, 0.6]
         }
       });
-      map.addLayer({
-        id: `${sourceId}-outline`,
-        type: 'line',
-        source: sourceId,
-        paint: { 'line-color': '#111827', 'line-width': 0.5 }
-      });
-
-      map.on('click', fillId, (e) => {
-        if (map.getZoom() > POLYGON_MAX_CLICK_ZOOM) return;
-        const f = map.queryRenderedFeatures(e.point, { layers: [fillId] })[0];
-        if (!f) return;
-        const p = f.properties;
-        const title = p.label || p.theater_id || dataset.label || 'Area';
-        const start = formatDate(p.start_date);
-        const end = formatDate(p.end_date);
-        const dates = start && end ? `${start} - ${end}` : (start || end || '');
-        const intensity = p.intensity ? `Intensity ${p.intensity}` : '';
-        const killed = p.estimated_killed ? `killed: ${p.estimated_killed}` : '';
-        const statsLine = [intensity, killed].filter(Boolean).join(', ');
-        let countries = p.countries_1914 || p.countries_1915 || p.countries_1916 || p.countries_1917 || p.countries || [];
-        if (typeof countries === 'string') countries = countries.split(',').map(c => c.trim());
-        const countriesList = Array.isArray(countries) && countries.length ? countries.join(', ') : '';
-        const wiki = p.wiki ? `<a href="${p.wiki}" target="_blank" style="color: #1e40af;">Wikipedia</a>` : '';
-        const html = `<div style="max-width: 280px; padding: 8px;"><strong style="font-size: 14px;">${title}</strong><br>${dates ? dates + '<br>' : ''}${statsLine ? statsLine + '<br>' : ''}${countriesList ? countriesList : ''}${wiki}</div>`;
-        new mapboxgl.Popup({ offset: 15 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
-      });
+      map.addLayer({ id: `${srcId}-outline`, type: 'line', source: srcId,
+                     paint: { 'line-color': '#111827','line-width': 0.5 }});
     }
   }
+
+  applyTimelineFilter(1900);
 });
 </script>
 </body>
