@@ -37,6 +37,7 @@
   // =====================================================
   const POLYGON_MAX_CLICK_ZOOM = 3;             // POPUP: Max zoom for polygon click popups
   let allPointLayers = [];                      // TIMELINE: Tracks all point layers for filtering
+  let allPolygonLayers = [];                    // TIMELINE: Tracks all polygon layers for filtering
 
   // =====================================================
   // ==================== UTILITY FUNCTIONS ==============
@@ -51,74 +52,34 @@
   }
 
   // =====================================================
-  // ==================== MAIN MAP LOAD EVENT =============
+  // ==================== TIMELINE FILTER LOGIC ==========
   // =====================================================
-  map.on('load', async () => {
-    // ===================================================
-    // ==================== TIMELINE SETUP ================
-    // ===================================================
-    const MIN_YEAR = -3100;
-    const MAX_YEAR = 2000;
-    const TOTAL_SPAN = MAX_YEAR - MIN_YEAR;
-    
-    // TIMELINE: Creates the timeline UI at top-center
-    const timelineDiv = document.createElement('div');
-    timelineDiv.id = 'timeline';
-    timelineDiv.style.cssText = `position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; min-width: 400px; text-align: center; font-family: sans-serif;`;
-    timelineDiv.innerHTML = `
-      <div style="font-weight: bold; margin-bottom: 10px;">Timeline</div>
-      <div style="display: flex; gap: 5px; justify-content: center; margin-bottom: 10px; flex-wrap: wrap;">
-        <button class="era-btn" data-year="-3100">3100 BCE</button>
-        <button class="era-btn" data-year="-500">500 BCE</button>
-        <button class="era-btn" data-year="0">0 CE</button>
-        <button class="era-btn" data-year="1000">1000 CE</button>
-        <button class="era-btn" data-year="1900">1900</button>
-        <button class="era-btn" data-year="2000">2000</button>
-      </div>
-      <label>Year: <span id="year-label">3100 BCE</span></label><br>
-      <input id="year-slider" type="range" min="0" max="1000" value="0" step="1" style="width: 100%; margin-top: 5px;">
-    `;
-    document.body.appendChild(timelineDiv);
+  function applyTimelineFilter(targetYear) {
+    const yearFilter = ['<=', ['get', 'start_year'], targetYear];
 
-    // TIMELINE: Core filtering function - hides/shows layers by year
-    function updateTimeline(normalizedYear) {
-      const targetYear = Math.round(MIN_YEAR + normalizedYear * TOTAL_SPAN);
-      const yearFilter = ['<=', ['get', 'start_year'], targetYear];  // TIMELINE: Filter shows events <= target year
-      
-      // TIMELINE: Apply filter to ALL point layers (clusters + single points)
-      allPointLayers.forEach(layerId => {
-        const sourceId = layerId.split('-')[0];
-        ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
-          const fullId = `${sourceId}-${suffix}`;
-          if (map.getLayer(fullId)) map.setFilter(fullId, yearFilter);
-        });
-      });
-      
-      // TIMELINE: Update year display
-      document.getElementById('year-label').textContent = targetYear >= 0 ? `${targetYear} CE` : `${Math.abs(targetYear)} BCE`;
-    }
-
-    // TIMELINE: Slider event - updates filter when dragged
-    document.getElementById('year-slider').addEventListener('input', (e) => updateTimeline(e.target.value / 1000));
-    
-    // TIMELINE: Era button events - jump to specific years
-    document.querySelectorAll('.era-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const year = parseInt(btn.dataset.year);
-        const normalized = (year - MIN_YEAR) / TOTAL_SPAN;
-        document.getElementById('year-slider').value = Math.round(normalized * 1000);
-        updateTimeline(normalized);
+    // Points (clusters + singles)
+    allPointLayers.forEach(layerId => {
+      const sourceId = layerId.split('-')[0];
+      ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
+        const fullId = `${sourceId}-${suffix}`;
+        if (map.getLayer(fullId)) map.setFilter(fullId, yearFilter);
       });
     });
 
-    // TIMELINE: Era button styling
-    const style = document.createElement('style');
-    style.textContent = `.era-btn { padding: 4px 8px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer; font-size: 11px; } .era-btn:hover { background: #f0f0f0; }`;
-    document.head.appendChild(style);
-    // ==================== END TIMELINE ===================
+    // Polygons (fill + outline)
+    allPolygonLayers.forEach(fillId => {
+      if (map.getLayer(fillId)) map.setFilter(fillId, yearFilter);
+      const outlineId = fillId.replace('-fill', '-outline');
+      if (map.getLayer(outlineId)) map.setFilter(outlineId, yearFilter);
+    });
+  }
 
+  // =====================================================
+  // ==================== MAIN MAP LOAD EVENT ============
+  // =====================================================
+  map.on('load', async () => {
     // ===================================================
-    // ==================== DATASET LOADING ================
+    // ==================== DATASET LOADING ==============
     // ===================================================
     const manifestRes = await fetch('manifest.json');
     const manifest = await manifestRes.json();
@@ -137,7 +98,7 @@
         data: geojson,
         cluster: isPoint  // MAP: Enable clustering for points only
       });
-      
+
       // MAP: Extract year from start_date for timeline filtering
       if (geojson.features) {
         geojson.features.forEach(f => {
@@ -197,7 +158,7 @@
         allPointLayers.push(`${sourceId}-unclustered-point`);
 
         // ===============================================
-        // ==================== POINT EVENTS ==============
+        // ==================== POINT EVENTS =============
         // ===============================================
         // EVENT: Click cluster → zoom into it
         map.on('click', `${sourceId}-clusters`, (e) => {
@@ -248,6 +209,9 @@
           paint: { 'line-color': '#111827', 'line-width': 0.5 }
         });
 
+        // Track polygon layers for timeline filtering
+        allPolygonLayers.push(fillId);
+
         // ===============================================
         // ==================== POLYGON EVENT + POPUP ====
         // ===============================================
@@ -287,13 +251,109 @@
         });
       }
     }
-    
+
     // ===================================================
-    // ==================== INITIALIZE TIMELINE ===========
+    // ==================== TIMELINE INIT =================
     // ===================================================
-    // TIMELINE: Start at 3100 BCE (slider position 0)
-    updateTimeline(0);
+    initTimeline();
+    window.applyTimelineFilter = applyTimelineFilter;
   });
+</script>
+
+<!-- ==================== TIMELINE CODE (FROM FIRST FILE) ==================== -->
+<style>
+  #timeline {
+    position: absolute; bottom: 10px; left: 0; right: 0;
+    height: 25px; background: rgba(255,255,255,0.95); 
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 1000;
+  }
+  
+  #slider { 
+    width: 90%; height: 4px; margin: 0 20px; 
+    -webkit-appearance: none; appearance: none;
+    background: #ddd; border-radius: 2px; outline: none;
+  }
+  #slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 18px; height: 18px; background: #37879d;
+    border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+  #slider::-moz-range-thumb {
+    width: 18px; height: 18px; background: #37879d;
+    border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    border: none;
+  }
+
+  #year-label { 
+    position: absolute; bottom: 28px;
+    font-size: 13px; font-weight: 600; 
+    background: #37879d; color: white; padding: 4px 10px; 
+    border-radius: 15px; white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: all 0.1s ease; pointer-events: none;
+  }
+</style>
+
+<script>
+  // ==================== TIMELINE LOGIC ====================
+  const TIME_SEGMENTS = [
+    { sliderStart: 0,   sliderEnd: 100,   yearStart: -3100, yearEnd: 0 },
+    { sliderStart: 100, sliderEnd: 200,   yearStart: 0,     yearEnd: 1600 },
+    { sliderStart: 200, sliderEnd: 300,   yearStart: 1600,  yearEnd: 1700 },
+    { sliderStart: 300, sliderEnd: 400,   yearStart: 1700,  yearEnd: 1800 },
+    { sliderStart: 400, sliderEnd: 500,   yearStart: 1800,  yearEnd: 1850 },
+    { sliderStart: 500, sliderEnd: 600,   yearStart: 1850,  yearEnd: 1900 },
+    { sliderStart: 600, sliderEnd: 700,   yearStart: 1900,  yearEnd: 1950 },
+    { sliderStart: 700, sliderEnd: 800,   yearStart: 1950,  yearEnd: 1975 },
+    { sliderStart: 800, sliderEnd: 900,   yearStart: 1975,  yearEnd: 2000 },
+    { sliderStart: 900, sliderEnd: 1000,  yearStart: 2000,  yearEnd: 2000 }
+  ];
+
+  function sliderToYear(sliderValue) {
+    for (const segment of TIME_SEGMENTS) {
+      if (sliderValue >= segment.sliderStart && sliderValue <= segment.sliderEnd) {
+        const segmentProgress = (sliderValue - segment.sliderStart) / (segment.sliderEnd - segment.sliderStart);
+        return Math.round(segment.yearStart + segmentProgress * (segment.yearEnd - segment.yearStart));
+      }
+    }
+    return 2000;
+  }
+
+  function initTimeline() {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="timeline">
+        <input id="slider" type="range" min="0" max="1000" value="850" step="1">
+        <div id="year-label">1975</div>
+      </div>
+    `);
+
+    const slider = document.getElementById('slider');
+    
+    slider.addEventListener('input', function(e) {
+      const sliderValue = parseFloat(e.target.value);
+      const targetYear = sliderToYear(sliderValue);
+      applyTimelineFilter(targetYear);
+      updateYearLabel(targetYear, sliderValue);
+    });
+
+    // Initial state
+    const initialYear = sliderToYear(850);
+    updateYearLabel(initialYear, 850);
+    applyTimelineFilter(initialYear);
+  }
+
+  function updateYearLabel(targetYear, sliderValue) {
+    const label = document.getElementById('year-label');
+    const slider = document.getElementById('slider');
+    
+    label.textContent = targetYear >= 0 ? `${targetYear}` : `${Math.abs(targetYear)} BCE`;
+    
+    const sliderRect = slider.getBoundingClientRect();
+    const percent = sliderValue / 1000;
+    const thumbX = sliderRect.left + percent * sliderRect.width;
+    label.style.left = `${thumbX}px`;
+  }
 </script>
 </body>
 </html>
