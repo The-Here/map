@@ -2,49 +2,69 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>The Here — Map</title>
+  <title>The Here — Map (Interactive Timeline)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
   <style>
     body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
     #map { position: absolute; inset: 0; }
-    
+
+    /* Timeline bar container */
     #timeline {
-      position: absolute; bottom: 10px; left: 0; right: 0;
-      height: 25px; background: rgba(255,255,255,0.95); 
+      position: absolute; 
+      bottom: 20px; left: 50%; transform: translateX(-50%);
+      width: 90%; height: 40px;
+      background: rgba(255,255,255,0.95);
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 1000;
-      position: relative;
+      border-radius: 8px;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.15);
+      z-index: 1000;
     }
+
+    /* Range slider */
     #slider { 
-      width: 90%; height: 4px; margin: 0 20px; 
+      width: 95%; height: 5px;
       -webkit-appearance: none; appearance: none;
-      background: #ddd; border-radius: 2px; outline: none;
+      background: #ddd; border-radius: 3px; outline: none;
     }
     #slider::-webkit-slider-thumb {
       -webkit-appearance: none; appearance: none;
-      width: 18px; height: 18px; background: #37879d;
-      border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      width: 16px; height: 16px; background: #37879d;
+      border-radius: 50%; cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
     }
-    #year-label { 
-      position: absolute; bottom: -35px; left: 50%; transform: translateX(-50%);
-      font-size: 13px; font-weight: 600; 
-      background: #37879d; color: white; padding: 4px 10px; 
-      border-radius: 15px; white-space: nowrap;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      transition: all 0.1s ease;
+    #slider::-moz-range-thumb {
+      width: 16px; height: 16px; background: #37879d;
+      border-radius: 50%; cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      border: none;
+    }
+
+    /* Floating year bubble */
+    #year-label {
+      position: absolute;
+      bottom: 55px;
+      font-size: 13px; font-weight: 700;
+      background: #37879d; color: white;
+      padding: 5px 12px;
+      border-radius: 20px;
+      white-space: nowrap;
+      transform: translateX(-50%);
+      pointer-events: none;
+      transition: bottom 0.2s ease;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
     }
   </style>
 </head>
 <body>
 <div id="map"></div>
+
 <script>
 mapboxgl.accessToken = 'pk.eyJ1Ijoibm9ydGhlZGRhIiwiYSI6ImNtYmVjczJ4cTFndnEycW42cnFwbjBjbzcifQ.XYvDSeoj0uD6K8WpK5v0mQ';
 const map = new mapboxgl.Map({
   container: 'map',
   style: 'mapbox://styles/mapbox/light-v11',
-  projection: 'mercator',
   center: [0, 20],
   zoom: 1,
   minZoom: 1,
@@ -55,36 +75,31 @@ const POLYGON_MAX_CLICK_ZOOM = 3;
 let allPointLayers = [];
 let allPolygonLayers = [];
 
+/* ---------- Utility functions ---------- */
 function formatDate(isoDate) {
   if (!isoDate) return '';
-  const [year, month, day] = isoDate.split('-');
+  const [y, m, d] = isoDate.split('-');
   const shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const m = shortMonths[parseInt(month) - 1];
-  return `${year}, ${m} ${parseInt(day)}`;
+  return `${y}, ${shortMonths[parseInt(m)-1]} ${parseInt(d)}`;
 }
 
 const MIN_YEAR = -3100;
 const MAX_YEAR = 2000;
 
 function getYearFromSlider(value) {
-  if (value < 0.1) {
-    return Math.round(MIN_YEAR + (value / 0.1) * (0 - MIN_YEAR));
-  } else {
-    return Math.round(((value - 0.1) / 0.9) * MAX_YEAR);
-  }
+  const v = value / 1000;
+  if (v < 0.1) return Math.round(MIN_YEAR + (v / 0.1) * (0 - MIN_YEAR));
+  return Math.round(((v - 0.1) / 0.9) * MAX_YEAR);
 }
 
 function getSliderFromYear(year) {
-  if (year < 0) {
-    return ((year - MIN_YEAR) / (0 - MIN_YEAR)) * 0.1;
-  } else {
-    return 0.1 + ((year / MAX_YEAR) * 0.9);
-  }
+  if (year < 0) return ((year - MIN_YEAR) / (0 - MIN_YEAR)) * 100;
+  return 100 + ((year / MAX_YEAR) * 900);
 }
 
+/* Apply temporal filter to layers */
 function applyTimelineFilter(targetYear) {
   const yearFilter = ['<=', ['get', 'start_year'], targetYear];
-  
   allPointLayers.forEach(layerId => {
     const sourceId = layerId.split('-')[0];
     ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
@@ -92,7 +107,6 @@ function applyTimelineFilter(targetYear) {
       if (map.getLayer(fullId)) map.setFilter(fullId, yearFilter);
     });
   });
-  
   allPolygonLayers.forEach(fillId => {
     if (map.getLayer(fillId)) map.setFilter(fillId, yearFilter);
     const outlineId = fillId.replace('-fill', '-outline');
@@ -100,35 +114,46 @@ function applyTimelineFilter(targetYear) {
   });
 }
 
+/* Move and update year label */
 function updateYearLabel(targetYear) {
   const label = document.getElementById('year-label');
-  label.textContent = targetYear >= 0 ? `${targetYear}` : `${Math.abs(targetYear)} BCE`;
-  // Position follows slider thumb smoothly
   const slider = document.getElementById('slider');
-  const thumbRect = slider.getBoundingClientRect();
-  const sliderRect = document.getElementById('timeline').getBoundingClientRect();
-  const thumbX = (targetYear < 0 ? 5 : 45 + (targetYear / 2000) * 50) + '%'; // Approximate thumb position
-  label.style.left = `calc(${thumbX} - 25px)`; // Center circle under thumb
+
+  label.textContent = targetYear >= 0 ? `${targetYear}` : `${Math.abs(targetYear)} BCE`;
+
+  const sliderRect = slider.getBoundingClientRect();
+  const min = parseFloat(slider.min);
+  const max = parseFloat(slider.max);
+  const val = parseFloat(slider.value);
+
+  const percent = (val - min) / (max - min);
+  const labelX = sliderRect.left + percent * sliderRect.width;
+  label.style.left = `${labelX}px`;
 }
 
+/* ---------- Map load ---------- */
 map.on('load', async () => {
+  // Add timeline HTML after map loads
   document.body.insertAdjacentHTML('beforeend', `
     <div id="timeline">
-      <input id="slider" type="range" min="0" max="1000" value="850" step="1">
+      <input id="slider" type="range" min="0" max="1000" step="1" value="850">
       <div id="year-label">1900</div>
     </div>
   `);
 
   const slider = document.getElementById('slider');
+  const label = document.getElementById('year-label');
+
+  // Update label position on resize (responsive)
+  window.addEventListener('resize', () => updateYearLabel(getYearFromSlider(slider.value)));
+
   slider.addEventListener('input', (e) => {
-    const normalized = e.target.value / 1000;
-    const targetYear = getYearFromSlider(normalized);
+    const targetYear = getYearFromSlider(parseFloat(e.target.value));
     applyTimelineFilter(targetYear);
     updateYearLabel(targetYear);
   });
 
-  // Initial position
-  updateYearLabel(1900);
+  updateYearLabel(1900); // initial position
 
   const manifestRes = await fetch('manifest.json');
   const manifest = await manifestRes.json();
@@ -150,12 +175,13 @@ map.on('load', async () => {
     if (geojson.features) {
       geojson.features.forEach(f => {
         if (f.properties.start_date) {
-          f.properties.start_year = parseInt(f.properties.start_date.substring(0, 4));
+          f.properties.start_year = parseInt(f.properties.start_date.substring(0,4));
         }
       });
       map.getSource(sourceId).setData(geojson);
     }
 
+    /* Points */
     if (isPoint) {
       map.addLayer({
         id: `${sourceId}-clusters`,
@@ -163,8 +189,10 @@ map.on('load', async () => {
         source: sourceId,
         filter: ['has', 'point_count'],
         paint: {
-          'circle-color': ['step', ['get', 'point_count'], '#51bbd6', 10, '#f1f075', 30, '#f28cb1'],
-          'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 30, 25]
+          'circle-color': ['step', ['get', 'point_count'],
+            '#51bbd6', 10, '#f1f075', 30, '#f28cb1'],
+          'circle-radius': ['step', ['get', 'point_count'],
+            15, 10, 20, 30, 25]
         }
       });
       map.addLayer({
@@ -172,10 +200,9 @@ map.on('load', async () => {
         type: 'symbol',
         source: sourceId,
         filter: ['has', 'point_count'],
-        layout: { 
-          'text-field': ['get', 'point_count_abbreviated'], 
-          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'], 
-          'text-size': 12 
+        layout: {
+          'text-field': ['get', 'point_count_abbreviated'],
+          'text-size': 12
         },
         paint: { 'text-color': '#000000' }
       });
@@ -184,36 +211,40 @@ map.on('load', async () => {
         type: 'circle',
         source: sourceId,
         filter: ['!', ['has', 'point_count']],
-        paint: { 
+        paint: {
           'circle-radius': 8, 
-          'circle-color': '#37879d', 
-          'circle-opacity': 0.9, 
-          'circle-stroke-color': '#ffffff', 
-          'circle-stroke-width': 1 
+          'circle-color': '#37879d',
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 1
         }
       });
       allPointLayers.push(`${sourceId}-unclustered-point`);
 
-      map.on('click', `${sourceId}-clusters`, (e) => {
+      map.on('click', `${sourceId}-clusters`, e => {
         const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-clusters`] })[0];
         if (!f) return;
         const clusterId = f.properties.cluster_id;
-        map.getSource(sourceId).getClusterExpansionZoom(clusterId, (err, zoom) => {
-          if (err) return;
-          map.easeTo({ center: f.geometry.coordinates, zoom });
-        });
+        map.getSource(sourceId)
+          .getClusterExpansionZoom(clusterId, (err, zoom) => {
+            if (!err) map.easeTo({ center: f.geometry.coordinates, zoom });
+          });
       });
-      map.on('click', `${sourceId}-unclustered-point`, (e) => {
+
+      map.on('click', `${sourceId}-unclustered-point`, e => {
         const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-unclustered-point`] })[0];
         if (!f) return;
         const p = f.properties;
-        const title = p.label || p.id || dataset.label || 'Event';
+        const title = p.label || dataset.label || 'Event';
         const start = formatDate(p.start_date);
         const end = formatDate(p.end_date);
-        const dates = start && end ? `${start} - ${end}` : (start || end || p.date || '');
-        new mapboxgl.Popup().setLngLat(e.lngLat).setHTML(`<strong>${title}</strong><br>${dates}`).addTo(map);
+        const dates = start && end ? `${start} - ${end}` : (start || end || '');
+        new mapboxgl.Popup()
+          .setLngLat(e.lngLat)
+          .setHTML(`<strong>${title}</strong><br>${dates}`)
+          .addTo(map);
       });
 
+    /* Polygons */
     } else if (isPolygon) {
       const fillId = `${sourceId}-fill`;
       allPolygonLayers.push(fillId);
@@ -223,8 +254,10 @@ map.on('load', async () => {
         type: 'fill',
         source: sourceId,
         paint: {
-          'fill-color': ['interpolate', ['linear'], ['get', 'intensity'], 1, '#fee2e2', 3, '#f97373', 5, '#7f1d1d'],
-          'fill-opacity': ['interpolate', ['linear'], ['get', 'intensity'], 1, 0.15, 5, 0.6]
+          'fill-color': ['interpolate', ['linear'], ['get', 'intensity'],
+            1, '#fee2e2', 3, '#f97373', 5, '#7f1d1d'],
+          'fill-opacity': ['interpolate', ['linear'], ['get', 'intensity'],
+            1, 0.15, 5, 0.6]
         }
       });
       map.addLayer({
@@ -234,24 +267,23 @@ map.on('load', async () => {
         paint: { 'line-color': '#111827', 'line-width': 0.5 }
       });
 
-      map.on('click', fillId, (e) => {
+      map.on('click', fillId, e => {
         if (map.getZoom() > POLYGON_MAX_CLICK_ZOOM) return;
         const f = map.queryRenderedFeatures(e.point, { layers: [fillId] })[0];
         if (!f) return;
         const p = f.properties;
-        const title = p.label || p.theater_id || dataset.label || 'Area';
+        const title = p.label || dataset.label || 'Area';
         const start = formatDate(p.start_date);
         const end = formatDate(p.end_date);
         const dates = start && end ? `${start} - ${end}` : (start || end || '');
-        const intensity = p.intensity ? `Intensity ${p.intensity}` : '';
-        const killed = p.estimated_killed ? `killed: ${p.estimated_killed}` : '';
-        const statsLine = [intensity, killed].filter(Boolean).join(', ');
-        let countries = p.countries_1914 || p.countries_1915 || p.countries_1916 || p.countries_1917 || p.countries || [];
-        if (typeof countries === 'string') countries = countries.split(',').map(c => c.trim());
-        const countriesList = Array.isArray(countries) && countries.length ? countries.join(', ') : '';
-        const wiki = p.wiki ? `<a href="${p.wiki}" target="_blank" style="color: #1e40af;">Wikipedia</a>` : '';
-        const html = `<div style="max-width: 280px; padding: 8px;"><strong style="font-size: 14px;">${title}</strong><br>${dates ? dates + '<br>' : ''}${statsLine ? statsLine + '<br>' : ''}${countriesList ? countriesList : ''}${wiki}</div>`;
-        new mapboxgl.Popup({ offset: 15 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+        const html = `
+          <div style="max-width:280px;">
+            <strong>${title}</strong><br>${dates}
+          </div>`;
+        new mapboxgl.Popup({ offset: 10 })
+          .setLngLat(e.lngLat)
+          .setHTML(html)
+          .addTo(map);
       });
     }
   }
