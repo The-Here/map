@@ -40,8 +40,12 @@
   }
 
   function applyTimelineFilter(targetYear) {
-    const yearFilter = ['<=', ['get', 'start_year'], targetYear];
-    
+const yearFilter = [
+  'all',
+  ['<=', ['get', 'start_year'], targetYear],
+  ['>=', ['get', 'end_year'], targetYear]
+];
+
     allPointLayers.forEach(layerId => {
       const sourceId = layerId.split('-')[0];
       ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
@@ -171,13 +175,20 @@
       });
       
       if (geojson.features) {
-        geojson.features.forEach(f => {
-          if (f.properties.start_date) {
-            f.properties.start_year = parseInt(f.properties.start_date.split('-')[0]);
-          }
-        });
-        map.getSource(sourceId).setData(geojson);
-      }
+  geojson.features.forEach(f => {
+    if (f.properties.start_date) {
+      f.properties.start_year = parseInt(f.properties.start_date.split('-')[0]);
+    }
+    if (f.properties.end_date) {
+      f.properties.end_year = parseInt(f.properties.end_date.split('-')[0]);
+    } else {
+      // open-ended events stay visible after start
+      f.properties.end_year = 9999;
+    }
+  });
+  map.getSource(sourceId).setData(geojson);
+}
+
 
       if (isPoint) {
         map.addLayer({
