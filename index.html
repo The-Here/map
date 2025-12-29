@@ -172,15 +172,17 @@
       });
       
       if (geojson.features) {
-        geojson.features.forEach(f => {
-          if (f.properties.start_date) {
-            f.properties.start_year = parseInt(f.properties.start_date.split('-')[0]);
-          }
-          if (f.properties.end_date) {
-      f.properties.end_year = parseInt(f.properties.end_date.split('-')[0]);}
-        });
-        map.getSource(sourceId).setData(geojson);
-      }
+  geojson.features.forEach(f => {
+    if (f.properties.start_date) {
+      f.properties.start_year = parseInt(f.properties.start_date.split('-')[0]);
+    }
+    if (f.properties.end_date) {
+      f.properties.end_year = parseInt(f.properties.end_date.split('-')[0]);
+    }
+  });
+  map.getSource(sourceId).setData(geojson);
+}
+
 
       if (isPoint) {
         map.addLayer({
