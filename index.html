@@ -280,7 +280,7 @@
           const killed = p.estimated_killed ? `killed: ${p.estimated_killed}` : '';
           const statsLine = [intensity, killed].filter(Boolean).join(', ');
 
-          let countries = p.countries_1914 || p.countries_1915 || p.countries_1916 || p.countries_1917 || p.countries || [];
+          let countries = p.countries_1914 || p.countries_1915 || p.countries_1916 || p.countries_1917 || p.countries_1918 || p.countries || [];
           if (typeof countries === 'string') countries = countries.split(',').map(c => c.trim());
           const countriesList = Array.isArray(countries) && countries.length ? countries.join(', ') : '';
           const wiki = p.wiki ? `<a href="${p.wiki}" target="_blank" style="color: #1e40af;">Wikipedia</a>` : '';
