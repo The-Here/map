@@ -39,10 +39,9 @@
     return `${year}, ${m} ${parseInt(day)}`;
   }
 
-  const yearFilter = ['all', 
-    ['<=', ['get', 'start_year'], targetYear],
-    ['>=', ['get', 'end_year'], targetYear]
-  ];
+  const yearFilter = ['all', ['<=', ['get', 'start_year'], targetYear], ['>=', ['get', 'end_year'], targetYear]];
+
+
     
     allPointLayers.forEach(layerId => {
       const sourceId = layerId.split('-')[0];
