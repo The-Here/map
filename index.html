@@ -39,8 +39,10 @@
     return `${year}, ${m} ${parseInt(day)}`;
   }
 
-  function applyTimelineFilter(targetYear) {
-    const yearFilter = ['<=', ['get', 'start_year'], targetYear];
+  const yearFilter = ['all', 
+    ['<=', ['get', 'start_year'], targetYear],
+    ['>=', ['get', 'end_year'], targetYear]
+  ];
     
     allPointLayers.forEach(layerId => {
       const sourceId = layerId.split('-')[0];
