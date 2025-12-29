@@ -1,147 +1,109 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>The Here — Map</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta charset="utf-8" />
+<title>The Here — Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
-  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
 
-  <style>
-    body { margin: 0; padding: 0; }
-    #map { position: absolute; inset: 0; }
+<style>
+  body { margin:0; padding:0; }
+  #map { position:absolute; inset:0; }
 
-    #timeline {
-      position: absolute;
-      bottom: 10px;
-      left: 0;
-      right: 0;
-      height: 26px;
-      background: rgba(255,255,255,0.95);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
-    }
-
-    #slider {
-      width: 90%;
-      height: 4px;
-    }
-
-    #year-label {
-      position: absolute;
-      bottom: 34px;
-      background: #37879d;
-      color: white;
-      padding: 4px 10px;
-      border-radius: 14px;
-      font-size: 13px;
-      font-weight: 600;
-      pointer-events: none;
-    }
-  </style>
+  #timeline {
+    position:absolute;
+    bottom:10px; left:0; right:0;
+    height:26px;
+    background:#fff;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:1000;
+  }
+  #slider { width:90%; }
+  #year { position:absolute; bottom:40px; background:#37879d; color:#fff;
+          padding:4px 10px; border-radius:12px; font-size:13px; }
+</style>
 </head>
-<body>
 
+<body>
 <div id="map"></div>
 
 <script>
+/* ================= MAP ================= */
+
 mapboxgl.accessToken =
-  'pk.eyJ1Ijoibm9ydGhlZGRhIiwiYSI6ImNtYmVjczJ4cTFndnEycW42cnFwbjBjbzcifQ.XYvDSeoj0uD6K8WpK5v0mQ';
+'pk.eyJ1Ijoibm9ydGhlZGRhIiwiYSI6ImNtYmVjczJ4cTFndnEycW42cnFwbjBjbzcifQ.XYvDSeoj0uD6K8WpK5v0mQ';
 
 const map = new mapboxgl.Map({
   container: 'map',
   style: 'mapbox://styles/mapbox/light-v11',
-  projection: 'mercator',
-  center: [0, 20],
-  zoom: 1,
-  minZoom: 1,
-  maxZoom: 12
+  center: [0,20],
+  zoom: 1
 });
 
-const POLYGON_MAX_CLICK_ZOOM = 3;
-const allPolygonLayers = [];
+const polygonLayers = [];
 
-/* ------------------ TIMELINE ------------------ */
-
-const TIME_SEGMENTS = [
-  { s: 0,   e: 100,  ys: -3100, ye: 0 },
-  { s: 100, e: 200,  ys: 0,     ye: 1600 },
-  { s: 200, e: 300,  ys: 1600,  ye: 1700 },
-  { s: 300, e: 400,  ys: 1700,  ye: 1800 },
-  { s: 400, e: 500,  ys: 1800,  ye: 1850 },
-  { s: 500, e: 600,  ys: 1850,  ye: 1900 },
-  { s: 600, e: 700,  ys: 1900,  ye: 1950 },
-  { s: 700, e: 800,  ys: 1950,  ye: 1975 },
-  { s: 800, e: 900,  ys: 1975,  ye: 2000 },
-  { s: 900, e: 1000, ys: 2000,  ye: 2000 }
-];
+/* ================= TIMELINE ================= */
 
 function sliderToYear(v) {
-  for (const t of TIME_SEGMENTS) {
-    if (v >= t.s && v <= t.e) {
-      const p = (v - t.s) / (t.e - t.s);
-      return Math.round(t.ys + p * (t.ye - t.ys));
-    }
-  }
-  return 2000;
+  return Math.round(-3100 + (v / 1000) * 5100);
 }
 
-function applyTimelineFilter(year) {
+function applyTimeline(year) {
   const filter = [
     'all',
-    ['<=', ['get', 'start_year'], year],
-    ['>=', ['get', 'end_year'], year]
+    ['<=', ['get','start_year'], year],
+    ['>=', ['get','end_year'], year]
   ];
 
-  allPolygonLayers.forEach(id => {
+  polygonLayers.forEach(id => {
     if (map.getLayer(id)) map.setFilter(id, filter);
-    const outline = id.replace('-fill', '-outline');
-    if (map.getLayer(outline)) map.setFilter(outline, filter);
+    const o = id.replace('-fill','-outline');
+    if (map.getLayer(o)) map.setFilter(o, filter);
   });
 }
 
 function initTimeline() {
   document.body.insertAdjacentHTML('beforeend', `
     <div id="timeline">
-      <input id="slider" type="range" min="0" max="1000" value="800">
-      <div id="year-label"></div>
+      <input id="slider" type="range" min="0" max="1000" value="850">
+      <div id="year"></div>
     </div>
   `);
 
   const slider = document.getElementById('slider');
-  const label = document.getElementById('year-label');
+  const label = document.getElementById('year');
 
   function update() {
-    const year = sliderToYear(+slider.value);
-    label.textContent = year >= 0 ? year : Math.abs(year) + ' BCE';
-    const r = slider.getBoundingClientRect();
-    label.style.left = r.left + (slider.value / 1000) * r.width + 'px';
-    applyTimelineFilter(year);
+    const y = sliderToYear(+slider.value);
+    label.textContent = y >= 0 ? y : Math.abs(y) + ' BCE';
+    applyTimeline(y);
   }
 
   slider.addEventListener('input', update);
   update();
 }
 
-/* ------------------ LOAD DATA ------------------ */
+/* ================= LOAD DATA ================= */
 
 map.on('load', async () => {
+
   const manifest = await fetch('manifest.json').then(r => r.json());
 
   for (const ds of manifest.datasets) {
+
     const geojson = await fetch(ds.file).then(r => r.json());
 
     geojson.features.forEach(f => {
       f.properties = f.properties || {};
       f.properties.start_year = f.properties.start_date
-        ? parseInt(f.properties.start_date.split('-')[0])
+        ? parseInt(f.properties.start_date)
         : -9999;
       f.properties.end_year = f.properties.end_date
-        ? parseInt(f.properties.end_date.split('-')[0])
+        ? parseInt(f.properties.end_date)
         : 9999;
     });
 
@@ -151,46 +113,42 @@ map.on('load', async () => {
       cluster: ds.geometryType === 'point'
     });
 
-    /* -------- POINTS -------- */
+    /* ---------- POINTS ---------- */
     if (ds.geometryType === 'point') {
+
       map.addLayer({
         id: `${ds.id}-clusters`,
         type: 'circle',
         source: ds.id,
-        filter: ['has', 'point_count'],
-        paint: {
-          'circle-color': '#51bbd6',
-          'circle-radius': 18
-        }
+        filter: ['has','point_count'],
+        paint: { 'circle-radius': 18, 'circle-color':'#51bbd6' }
       });
 
       map.addLayer({
-        id: `${ds.id}-cluster-count`,
+        id: `${ds.id}-count`,
         type: 'symbol',
         source: ds.id,
-        filter: ['has', 'point_count'],
-        layout: {
-          'text-field': ['get', 'point_count_abbreviated'],
-          'text-size': 12
-        }
+        filter: ['has','point_count'],
+        layout: { 'text-field':['get','point_count_abbreviated'] }
       });
 
       map.addLayer({
         id: `${ds.id}-points`,
         type: 'circle',
         source: ds.id,
-        filter: ['!', ['has', 'point_count']],
+        filter: ['!',['has','point_count']],
         paint: {
-          'circle-radius': 7,
-          'circle-color': '#37879d',
-          'circle-stroke-color': '#fff',
-          'circle-stroke-width': 1
+          'circle-radius':7,
+          'circle-color':'#37879d',
+          'circle-stroke-width':1,
+          'circle-stroke-color':'#fff'
         }
       });
     }
 
-    /* -------- POLYGONS -------- */
+    /* ---------- POLYGONS ---------- */
     if (ds.geometryType === 'polygon') {
+
       const fillId = `${ds.id}-fill`;
 
       map.addLayer({
@@ -198,12 +156,12 @@ map.on('load', async () => {
         type: 'fill',
         source: ds.id,
         paint: {
-          'fill-color': ['interpolate', ['linear'], ['get', 'intensity'],
-            1, '#fee2e2',
-            3, '#f97373',
-            5, '#7f1d1d'
+          'fill-color': ['interpolate',['linear'],['get','intensity'],
+            1,'#fee2e2',
+            3,'#f97373',
+            5,'#7f1d1d'
           ],
-          'fill-opacity': 0.5
+          'fill-opacity':0.5
         }
       });
 
@@ -211,13 +169,10 @@ map.on('load', async () => {
         id: `${ds.id}-outline`,
         type: 'line',
         source: ds.id,
-        paint: {
-          'line-color': '#111827',
-          'line-width': 0.5
-        }
+        paint: { 'line-color':'#111827','line-width':0.5 }
       });
 
-      allPolygonLayers.push(fillId);
+      polygonLayers.push(fillId);
     }
   }
 
