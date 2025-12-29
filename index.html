@@ -40,11 +40,23 @@
   }
 
   function applyTimelineFilter(targetYear) {
-const yearFilter = [
-  'all',
-  ['<=', ['get', 'start_year'], targetYear],
-  ['>=', ['get', 'end_year'], targetYear]
-];
+  const polygonYearFilter = [
+    'all',
+    ['<=', ['get', 'start_year'], targetYear],
+    ['>=', ['get', 'end_year'], targetYear]
+  ];
+
+  // 🔴 POLYGONS ONLY
+  allPolygonLayers.forEach(fillId => {
+    if (map.getLayer(fillId)) map.setFilter(fillId, polygonYearFilter);
+
+    const outlineId = fillId.replace('-fill', '-outline');
+    if (map.getLayer(outlineId)) map.setFilter(outlineId, polygonYearFilter);
+  });
+
+  // 🔵 POINTS — NO FILTER (clustered or not)
+}
+
 
     allPointLayers.forEach(layerId => {
       const sourceId = layerId.split('-')[0];
