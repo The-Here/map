@@ -209,11 +209,19 @@
       
       if (geojson.features) {
         geojson.features.forEach(f => {
+          // Handle start_date or date property
           if (f.properties.start_date) {
             f.properties.start_year = parseInt(f.properties.start_date.split('-')[0]);
+          } else if (f.properties.date && typeof f.properties.date === 'string') {
+            f.properties.start_year = parseInt(f.properties.date.split('-')[0]);
           }
+          
+          // Handle end_date or date property
           if (f.properties.end_date) {
             f.properties.end_year = parseInt(f.properties.end_date.split('-')[0]);
+          } else if (f.properties.date && typeof f.properties.date === 'string') {
+            // If only date is provided, use it as both start and end (single point in time)
+            f.properties.end_year = parseInt(f.properties.date.split('-')[0]);
           } else {
             // open-ended events stay visible after start
             f.properties.end_year = 9999;
