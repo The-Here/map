@@ -111,8 +111,8 @@
   function initTimeline() {
     document.body.insertAdjacentHTML('beforeend', `
       <div id="timeline">
-        <input id="slider" type="range" min="0" max="1000" value="850" step="1">
-        <div id="year-label">1975</div>
+        <input id="slider" type="range" min="0" max="1000" value="632" step="1">
+        <div id="year-label">1916</div>
       </div>
     `);
 
@@ -125,8 +125,8 @@
       updateYearLabel(targetYear, sliderValue);
     });
 
-    const initialYear = sliderToYear(850);
-    updateYearLabel(initialYear, 850);
+    const initialYear = sliderToYear(632);
+    updateYearLabel(initialYear, 632);
     window.applyTimelineFilter(initialYear);
   }
 
