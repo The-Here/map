@@ -210,16 +210,25 @@
       if (geojson.features) {
         geojson.features.forEach(f => {
           // Handle date property as both start and end date if no start_date/end_date exist
-          if (!f.properties.start_date && !f.properties.end_date && f.properties.date) {
-            f.properties.start_year = parseInt(f.properties.date.split('-')[0]);
-            f.properties.end_year = parseInt(f.properties.date.split('-')[0]);
-          } else {
-            if (f.properties.start_date) {
-              f.properties.start_year = parseInt(f.properties.start_date.split('-')[0]);
+          if (!f.properties.start_date && !f.properties.end_date && f.properties.date && typeof f.properties.date === 'string') {
+            const year = parseInt(f.properties.date.split('-')[0]);
+            if (!isNaN(year)) {
+              f.properties.start_year = year;
+              f.properties.end_year = year;
             }
-            if (f.properties.end_date) {
-              f.properties.end_year = parseInt(f.properties.end_date.split('-')[0]);
-            } else if (f.properties.start_date) {
+          } else {
+            if (f.properties.start_date && typeof f.properties.start_date === 'string') {
+              const startYear = parseInt(f.properties.start_date.split('-')[0]);
+              if (!isNaN(startYear)) {
+                f.properties.start_year = startYear;
+              }
+            }
+            if (f.properties.end_date && typeof f.properties.end_date === 'string') {
+              const endYear = parseInt(f.properties.end_date.split('-')[0]);
+              if (!isNaN(endYear)) {
+                f.properties.end_year = endYear;
+              }
+            } else if (f.properties.start_date && !isNaN(f.properties.start_year)) {
               // open-ended events stay visible after start
               f.properties.end_year = 9999;
             }
