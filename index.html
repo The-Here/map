@@ -209,14 +209,20 @@
       
       if (geojson.features) {
         geojson.features.forEach(f => {
-          if (f.properties.start_date) {
-            f.properties.start_year = parseInt(f.properties.start_date.split('-')[0]);
-          }
-          if (f.properties.end_date) {
-            f.properties.end_year = parseInt(f.properties.end_date.split('-')[0]);
+          // Handle date property as both start and end date if no start_date/end_date exist
+          if (!f.properties.start_date && !f.properties.end_date && f.properties.date) {
+            f.properties.start_year = parseInt(f.properties.date.split('-')[0]);
+            f.properties.end_year = parseInt(f.properties.date.split('-')[0]);
           } else {
-            // open-ended events stay visible after start
-            f.properties.end_year = 9999;
+            if (f.properties.start_date) {
+              f.properties.start_year = parseInt(f.properties.start_date.split('-')[0]);
+            }
+            if (f.properties.end_date) {
+              f.properties.end_year = parseInt(f.properties.end_date.split('-')[0]);
+            } else if (f.properties.start_date) {
+              // open-ended events stay visible after start
+              f.properties.end_year = 9999;
+            }
           }
         });
         // update the source so clusters and their aggregated properties are computed
@@ -319,7 +325,7 @@
           const title = p.label || p.theater_id || dataset.label || 'Area';
           const start = formatDate(p.start_date);
           const end = formatDate(p.end_date);
-          const dates = start && end ? `${start} - ${end}` : (start || end || '');
+          const dates = start && end ? `${start} - ${end}` : (start || end || p.date || '');
 
           const intensity = p.intensity ? `Intensity ${p.intensity}` : '';
           const killed = p.estimated_killed ? `killed: ${p.estimated_killed}` : '';
