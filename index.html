@@ -205,14 +205,20 @@
       if (geojson.features) {
         geojson.features.forEach(f => {
           if (!f.properties) f.properties = {};
-          if (f.properties.start_date) {
-            const parsed = parseInt(String(f.properties.start_date).split('-')[0], 10);
+          
+          // Try start_date first, fall back to date property
+          const startDateValue = f.properties.start_date || f.properties.date;
+          if (startDateValue) {
+            const parsed = parseInt(String(startDateValue).split('-')[0], 10);
             f.properties.start_year = Number.isFinite(parsed) ? parsed : null;
           } else {
             f.properties.start_year = null;
           }
-          if (f.properties.end_date) {
-            const parsed = parseInt(String(f.properties.end_date).split('-')[0], 10);
+          
+          // Try end_date first, fall back to date property
+          const endDateValue = f.properties.end_date || f.properties.date;
+          if (endDateValue) {
+            const parsed = parseInt(String(endDateValue).split('-')[0], 10);
             f.properties.end_year = Number.isFinite(parsed) ? parsed : null;
           } else {
             // open-ended events stay visible after start
