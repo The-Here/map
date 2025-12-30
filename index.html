@@ -228,7 +228,7 @@
               if (!isNaN(endYear)) {
                 f.properties.end_year = endYear;
               }
-            } else if (f.properties.start_date && !isNaN(f.properties.start_year)) {
+            } else if (f.properties.start_year !== undefined && !isNaN(f.properties.start_year)) {
               // open-ended events stay visible after start
               f.properties.end_year = 9999;
             }
