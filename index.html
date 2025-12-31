@@ -41,8 +41,10 @@
 
   function applyTimelineFilter(targetYear) {
     // Filter for individual (unclustered) point features
+    // Must check BOTH that it's not a cluster AND that it matches the year
     const pointYearFilter = [
       'all',
+      ['!', ['has', 'point_count']],
       ['<=', ['get', 'start_year'], targetYear],
       ['>=', ['get', 'end_year'], targetYear]
     ];
