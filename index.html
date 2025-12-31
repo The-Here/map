@@ -49,19 +49,27 @@
       ['>=', ['get', 'end_year'], targetYear]
     ];
 
-    // Don't filter clusters by year - clusters show all points in the area
-    // Only unclustered individual points are filtered by year
-    // This ensures clusters remain visible and functional
+    // Filter for cluster features - use aggregated clusterProperties
+    // Ensure aggregated props exist before using them to avoid hiding clusters
+    const clusterYearFilter = [
+      'all',
+      ['has', 'point_count'],
+      ['has', 'min_start_year'],
+      ['has', 'max_end_year'],
+      ['<=', ['get', 'min_start_year'], targetYear],
+      ['>=', ['get', 'max_end_year'], targetYear]
+    ];
 
     allPointLayers.forEach(layerId => {
       const sourceId = layerId.split('-')[0];
       ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
         const fullId = `${sourceId}-${suffix}`;
         if (!map.getLayer(fullId)) return;
-        if (suffix === 'unclustered-point') {
+        if (suffix === 'clusters' || suffix === 'cluster-count') {
+          map.setFilter(fullId, clusterYearFilter);
+        } else {
           map.setFilter(fullId, pointYearFilter);
         }
-        // Clusters and cluster-count layers get no year filter
       });
     });
 
