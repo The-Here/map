@@ -49,27 +49,20 @@
       ['>=', ['get', 'end_year'], targetYear]
     ];
 
-    // Filter for cluster features - use aggregated clusterProperties
-    // Ensure aggregated props exist before using them to avoid hiding clusters
-    const clusterYearFilter = [
-      'all',
-      ['has', 'point_count'],
-      ['has', 'min_start_year'],
-      ['has', 'max_end_year'],
-      ['<=', ['get', 'min_start_year'], targetYear],
-      ['>=', ['get', 'max_end_year'], targetYear]
-    ];
+    // Clusters are geographic only - they show density, not time
+    // Time filter is applied to individual points; clusters recompute from visible points
+    // No time-based filtering on clusters themselves
 
     allPointLayers.forEach(layerId => {
       const sourceId = layerId.split('-')[0];
       ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
         const fullId = `${sourceId}-${suffix}`;
         if (!map.getLayer(fullId)) return;
-        if (suffix === 'clusters' || suffix === 'cluster-count') {
-          map.setFilter(fullId, clusterYearFilter);
-        } else {
+        if (suffix === 'unclustered-point') {
           map.setFilter(fullId, pointYearFilter);
         }
+        // Clusters and cluster-count layers get no year filter
+        // They automatically cluster only the currently visible (time-filtered) points
       });
     });
 
