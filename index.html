@@ -28,12 +28,27 @@
   });
 
   const POLYGON_MAX_CLICK_ZOOM = 3;
-  let allPointLayers = [];
   let allPolygonLayers = [];
 
-  // store originals on window so you can inspect in the console if needed
-  window._pointSourceData = {};
-  window._pointSourceIds = [];
+  // RAW data (immutable): full datasets as loaded from files
+  // VIEW sources (clustered, time-sliced): per-point dataset view sources that we setData() on
+  window.__RAW_DATA = {};      // keyed by dataset.id
+  window.__VIEW_SOURCES = [];  // list of view source ids (datasetId + '-view')
+
+  // Single time filter function (single place to change policy)
+  function isVisibleAt(feature, targetYear, geometryType) {
+    const sy = feature.properties && Number.isFinite(feature.properties.start_year) ? feature.properties.start_year : null;
+    const ey = feature.properties && Number.isFinite(feature.properties.end_year) ? feature.properties.end_year : null;
+
+    if (geometryType === 'point') {
+      // Points have a single date -> start_year should equal end_year.
+      // Visible only if the event year equals the target year (start_year <= targetYear <= end_year).
+      return sy !== null && ey !== null && sy <= targetYear && ey >= targetYear;
+    } else {
+      // Polygons use start/end ranges (inclusive).
+      return sy !== null && ey !== null && sy <= targetYear && ey >= targetYear;
+    }
+  }
 
   function formatDate(isoDate) {
     if (!isoDate) return '';
@@ -44,28 +59,25 @@
   }
 
   function applyTimelineFilter(targetYear) {
-    // For point datasets: filter the original GeoJSON and call setData on the source so clusters are recomputed.
-    // Permissive date policy: missing start_date/end_date means "visible" (start -> -Infinity, end -> +Infinity).
-    window._pointSourceIds.forEach(sourceId => {
-      const original = window._pointSourceData[sourceId];
-      if (!original) return;
-      const filteredFeatures = (original.features || []).filter(f => {
-        const syRaw = f.properties && f.properties.start_year;
-        const eyRaw = f.properties && f.properties.end_year;
-        const sy = Number.isFinite(syRaw) ? syRaw : -9999;
-        const ey = Number.isFinite(eyRaw) ? eyRaw : 9999;
-        return sy <= targetYear && ey >= targetYear;
-      });
-      const filtered = { type: 'FeatureCollection', features: filteredFeatures };
+    // For each point dataset we maintain a view source (clustered) which we update with a filtered FeatureCollection.
+    window.__VIEW_SOURCES.forEach(viewSourceId => {
+      // original dataset id is viewSourceId.replace('-view','')
+      const datasetId = viewSourceId.replace(/-view$/, '');
+      const raw = window.__RAW_DATA[datasetId];
+      if (!raw) return;
+      const filtered = {
+        type: 'FeatureCollection',
+        features: (raw.features || []).filter(f => isVisibleAt(f, targetYear, 'point'))
+      };
       try {
-        const src = map.getSource(sourceId);
+        const src = map.getSource(viewSourceId);
         if (src) src.setData(filtered);
       } catch (e) {
-        console.warn('Failed to setData for source', sourceId, e);
+        console.warn('Failed to setData for view source', viewSourceId, e);
       }
     });
 
-    // For polygon layers: use layer filters (polygons are never clustered)
+    // Polygons are filtered via map.setFilter (they are never clustered).
     allPolygonLayers.forEach(fillId => {
       if (!map.getLayer(fillId)) return;
       const polyFilter = [
@@ -79,7 +91,7 @@
     });
   }
 
-  // ==================== TIMELINE (EXACT FROM FIRST CODE) ====================
+  // ==================== TIMELINE ====================
   const TIME_SEGMENTS = [
     { sliderStart: 0,   sliderEnd: 100,   yearStart: -3100, yearEnd: 0 },
     { sliderStart: 100, sliderEnd: 200,   yearStart: 0,     yearEnd: 1600 },
@@ -185,70 +197,91 @@
     const manifestRes = await fetch('manifest.json');
     const manifest = await manifestRes.json();
 
-    // Track which sources are point/clustered so we can wait for them
     for (const dataset of manifest.datasets) {
-      const sourceId = dataset.id;
+      const baseId = dataset.id;
       const isPoint = dataset.geometryType === 'point';
       const isPolygon = dataset.geometryType === 'polygon';
 
       const res = await fetch(dataset.file);
       const geojson = await res.json();
 
-      // Precompute start_year/end_year on features before adding to source
-      if (geojson.features) {
-        geojson.features.forEach(f => {
-          if (!f.properties) f.properties = {};
-          if (f.properties.start_date) {
-            const parsed = parseInt(String(f.properties.start_date).split('-')[0], 10);
-            f.properties.start_year = Number.isFinite(parsed) ? parsed : null;
-          } else {
-            f.properties.start_year = null;
-          }
-          if (f.properties.end_date) {
-            const parsed = parseInt(String(f.properties.end_date).split('-')[0], 10);
-            f.properties.end_year = Number.isFinite(parsed) ? parsed : null;
-          } else {
-            // open-ended events stay visible after start
-            f.properties.end_year = 9999;
-          }
-        });
-      }
+      // Precompute years on features, but DO NOT mutate the raw dataset for view/filtering later.
+      // We'll create a deep-ish copy for the raw storage where we can safely add properties used by isVisibleAt.
+      const raw = {
+        type: 'FeatureCollection',
+        features: (geojson.features || []).map(f => {
+          // shallow clone feature and its properties object so we can annotate years on RAW copy
+          const copy = Object.assign({}, f);
+          copy.properties = Object.assign({}, f.properties || {});
 
-      // Configure source; add clusterProperties for point sources so clusters have aggregated min/max
-      const sourceOptions = {
-        type: 'geojson',
-        data: geojson,
-        cluster: !!isPoint
+          if (isPoint) {
+            // Points: single date -> set start_year and end_year equal to the parsed year
+            if (copy.properties.start_date) {
+              const parsed = parseInt(String(copy.properties.start_date).split('-')[0], 10);
+              copy.properties.start_year = Number.isFinite(parsed) ? parsed : null;
+              copy.properties.end_year = copy.properties.start_year;
+            } else if (copy.properties.date) {
+              const parsed = parseInt(String(copy.properties.date).split('-')[0], 10);
+              copy.properties.start_year = Number.isFinite(parsed) ? parsed : null;
+              copy.properties.end_year = copy.properties.start_year;
+            } else {
+              copy.properties.start_year = null;
+              copy.properties.end_year = null;
+            }
+          } else if (isPolygon) {
+            // Polygons: ranges. If end_date missing, treat as open-ended (9999).
+            if (copy.properties.start_date) {
+              const parsed = parseInt(String(copy.properties.start_date).split('-')[0], 10);
+              copy.properties.start_year = Number.isFinite(parsed) ? parsed : null;
+            } else {
+              copy.properties.start_year = null;
+            }
+            if (copy.properties.end_date) {
+              const parsed = parseInt(String(copy.properties.end_date).split('-')[0], 10);
+              copy.properties.end_year = Number.isFinite(parsed) ? parsed : 9999;
+            } else {
+              copy.properties.end_year = 9999;
+            }
+          } else {
+            // default behavior for unknown geometry types
+            copy.properties.start_year = null;
+            copy.properties.end_year = null;
+          }
+
+          // Ensure stable event id exists (we don't generate new ids here).
+          // If your dataset uses 'event_id' or 'id' ensure it's present in the original data.
+          return copy;
+        })
       };
 
-      if (isPoint) {
-        // compute the min start year and max end year for clusters (kept, harmless)
-        sourceOptions.clusterProperties = {
-          min_start_year: ['min', ['get', 'start_year']],
-          max_end_year: ['max', ['get', 'end_year']]
-        };
-        // store original point data so the timeline can rebuild filtered subsets and call setData
-        window._pointSourceData[sourceId] = geojson;
-        window._pointSourceIds.push(sourceId);
-      }
-
-      map.addSource(sourceId, sourceOptions);
-
-      // Ensure source data is set (helps recompute clusters when we mutated properties)
-      if (geojson.features) {
-        try {
-          map.getSource(sourceId).setData(geojson);
-        } catch (e) {
-          // setData may fail if the source isn't ready yet; ignore safely
-          console.warn('setData failed for', sourceId, e);
-        }
-      }
+      // Store RAW copy (never mutated after this)
+      window.__RAW_DATA[baseId] = raw;
 
       if (isPoint) {
+        // Create a RAW source (not used by layers) purely for reference if needed (not clustered)
+        map.addSource(`${baseId}-raw`, { type: 'geojson', data: raw, cluster: false });
+
+        // Create a VIEW source (clustered) that we will setData on when time changes.
+        const viewSourceId = `${baseId}-view`;
+        window.__VIEW_SOURCES.push(viewSourceId);
+        map.addSource(viewSourceId, {
+          type: 'geojson',
+          // start with an empty collection; applyTimelineFilter will populate it
+          data: { type: 'FeatureCollection', features: [] },
+          cluster: true,
+          // clusterProperties are optional. Keep them harmless if you want to aggregate stats.
+          clusterProperties: {
+            min_start_year: ['min', ['get', 'start_year']],
+            max_end_year: ['max', ['get', 'end_year']],
+            // keep a stable total count (mapbox provides point_count)
+          }
+        });
+
+        // Layers must reference the VIEW source (so clustering is a layer/source concern, isolated from raw data)
         map.addLayer({
-          id: `${sourceId}-clusters`,
+          id: `${baseId}-clusters`,
           type: 'circle',
-          source: sourceId,
+          source: viewSourceId,
           filter: ['has', 'point_count'],
           paint: {
             'circle-color': ['step', ['get', 'point_count'], '#51bbd6', 10, '#f1f075', 30, '#f28cb1'],
@@ -260,9 +293,9 @@
         });
 
         map.addLayer({
-          id: `${sourceId}-cluster-count`,
+          id: `${baseId}-cluster-count`,
           type: 'symbol',
-          source: sourceId,
+          source: viewSourceId,
           filter: ['has', 'point_count'],
           layout: {
             'text-field': ['get', 'point_count_abbreviated'],
@@ -273,9 +306,9 @@
         });
 
         map.addLayer({
-          id: `${sourceId}-unclustered-point`,
+          id: `${baseId}-unclustered-point`,
           type: 'circle',
-          source: sourceId,
+          source: viewSourceId,
           filter: ['!', ['has', 'point_count']],
           paint: {
             'circle-radius': 8,
@@ -286,47 +319,49 @@
           }
         });
 
-        allPointLayers.push(`${sourceId}-unclustered-point`);
-
-        map.on('click', `${sourceId}-clusters`, (e) => {
-          const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-clusters`] })[0];
+        // click cluster -> expand
+        map.on('click', `${baseId}-clusters`, (e) => {
+          const f = map.queryRenderedFeatures(e.point, { layers: [`${baseId}-clusters`] })[0];
           if (!f) return;
           const clusterId = f.properties.cluster_id;
-          map.getSource(sourceId).getClusterExpansionZoom(clusterId, (err, zoom) => {
+          map.getSource(viewSourceId).getClusterExpansionZoom(clusterId, (err, zoom) => {
             if (err) return;
             map.easeTo({ center: f.geometry.coordinates, zoom });
           });
         });
 
-        map.on('click', `${sourceId}-unclustered-point`, (e) => {
-          const f = map.queryRenderedFeatures(e.point, { layers: [`${sourceId}-unclustered-point`] })[0];
+        // click point -> popup
+        map.on('click', `${baseId}-unclustered-point`, (e) => {
+          const f = map.queryRenderedFeatures(e.point, { layers: [`${baseId}-unclustered-point`] })[0];
           if (!f) return;
           const p = f.properties;
           const title = p.label || p.id || dataset.label || 'Event';
           const start = formatDate(p.start_date);
-          const end = formatDate(p.end_date);
-          const dates = start && end ? `${start} - ${end}` : (start || end || p.date || '');
+          const dates = start || '';
           const html = `<strong>${title}</strong><br>${dates}`;
           new mapboxgl.Popup().setLngLat(e.lngLat).setHTML(html).addTo(map);
         });
 
       } else if (isPolygon) {
-        const fillId = `${sourceId}-fill`;
+        // Polygons: add a single source and layers that use layer filters to show/hide by time.
+        map.addSource(baseId, { type: 'geojson', data: raw, cluster: false });
 
+        const fillId = `${baseId}-fill`;
         map.addLayer({
           id: fillId,
           type: 'fill',
-          source: sourceId,
+          source: baseId,
           paint: {
+            // color based on intensity, opacity based on intensity, overlapping will naturally stack
             'fill-color': ['interpolate', ['linear'], ['get', 'intensity'], 1, '#fee2e2', 3, '#f97373', 5, '#7f1d1d'],
             'fill-opacity': ['interpolate', ['linear'], ['get', 'intensity'], 1, 0.15, 5, 0.6]
           }
         });
 
         map.addLayer({
-          id: `${sourceId}-outline`,
+          id: `${baseId}-outline`,
           type: 'line',
-          source: sourceId,
+          source: baseId,
           paint: { 'line-color': '#111827', 'line-width': 0.5 }
         });
 
@@ -367,14 +402,12 @@
       }
     } // end for datasets
 
-    // Wait for all point sources to finish processing so that clusterProperties are available
+    // Wait for the map sources to be ready (defensive)
     async function waitForSourcesReady(ids) {
       await Promise.all(ids.map(id => new Promise(resolve => {
         try {
           if (map.isSourceLoaded && map.isSourceLoaded(id)) return resolve();
-        } catch (e) {
-          // ignore and use event listener fallback
-        }
+        } catch (e) {}
         const onSourceData = (e) => {
           if (e.sourceId === id && e.isSourceLoaded) {
             map.off('sourcedata', onSourceData);
@@ -382,7 +415,6 @@
           }
         };
         map.on('sourcedata', onSourceData);
-        // Fallback timeout in case sourcedata never fires (defensive)
         setTimeout(() => {
           map.off('sourcedata', onSourceData);
           resolve();
@@ -390,11 +422,25 @@
       })));
     }
 
-    if (window._pointSourceIds.length > 0) {
-      await waitForSourcesReady(window._pointSourceIds);
+    // build list of view source ids from window.__VIEW_SOURCES (already filled)
+    if (window.__VIEW_SOURCES.length > 0) {
+      await waitForSourcesReady(window.__VIEW_SOURCES.concat(Object.keys(window.__RAW_DATA).map(id => `${id}-raw`)));
     }
 
-    // Now clusters should have their aggregated properties; initialize timeline and apply the initial filter
+    // Initialize view sources with filtered data for the initial timeline year
+    const initialYear = (function(){ const v = sliderToYear(850); return v; })();
+    // populate each view source based on RAW data
+    window.__VIEW_SOURCES.forEach(viewId => {
+      const datasetId = viewId.replace(/-view$/, '');
+      const raw = window.__RAW_DATA[datasetId];
+      const initialFiltered = {
+        type: 'FeatureCollection',
+        features: (raw.features || []).filter(f => isVisibleAt(f, initialYear, 'point'))
+      };
+      try { map.getSource(viewId).setData(initialFiltered); } catch (e) { console.warn('init setData fail', viewId, e); }
+    });
+
+    // Finally initialize timeline UI
     initTimeline();
   });
 </script>
