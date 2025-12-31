@@ -41,22 +41,17 @@
 
   function applyTimelineFilter(targetYear) {
     // Filter for individual (unclustered) point features
+    // Clusters are geographic only - they show ALL events to prevent overplotting
+    // Individual points are time-filtered to show only events existing at targetYear
     const pointYearFilter = [
       'all',
+      ['!', ['has', 'point_count']],  // Exclude clusters from this filter
       ['<=', ['get', 'start_year'], targetYear],
       ['>=', ['get', 'end_year'], targetYear]
     ];
 
-    // Filter for cluster features - use aggregated clusterProperties
-    // Ensure aggregated props exist before using them to avoid hiding clusters
-    const clusterYearFilter = [
-      'all',
-      ['has', 'point_count'],
-      ['has', 'min_start_year'],
-      ['has', 'max_end_year'],
-      ['<=', ['get', 'min_start_year'], targetYear],
-      ['>=', ['get', 'max_end_year'], targetYear]
-    ];
+    // Cluster filter: geographic only, always visible (just check it's a cluster)
+    const clusterFilter = ['has', 'point_count'];
 
     allPointLayers.forEach(layerId => {
       const sourceId = layerId.split('-')[0];
@@ -64,8 +59,10 @@
         const fullId = `${sourceId}-${suffix}`;
         if (!map.getLayer(fullId)) return;
         if (suffix === 'clusters' || suffix === 'cluster-count') {
-          map.setFilter(fullId, clusterYearFilter);
+          // Clusters: always visible, geographic density only
+          map.setFilter(fullId, clusterFilter);
         } else {
+          // Individual points: filtered by time
           map.setFilter(fullId, pointYearFilter);
         }
       });
@@ -221,7 +218,7 @@
         });
       }
 
-      // Configure source; add clusterProperties for point sources so clusters have aggregated min/max
+      // Configure source with clustering enabled for point sources
       const sourceOptions = {
         type: 'geojson',
         data: geojson,
@@ -229,11 +226,6 @@
       };
 
       if (isPoint) {
-        // compute the min start year and max end year for clusters
-        sourceOptions.clusterProperties = {
-          min_start_year: ['min', ['get', 'start_year']],
-          max_end_year: ['max', ['get', 'end_year']]
-        };
         clusteredPointSourceIds.push(sourceId);
       }
 
