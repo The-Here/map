@@ -31,9 +31,9 @@
   let allPointLayers = [];
   let allPolygonLayers = [];
 
-  // Keep original point source data here so we can filter and call setData (this recomputes clusters)
-  const pointSourceData = {};
-  const pointSourceIds = [];
+  // store originals on window so you can inspect in the console if needed
+  window._pointSourceData = {};
+  window._pointSourceIds = [];
 
   function formatDate(isoDate) {
     if (!isoDate) return '';
@@ -44,18 +44,17 @@
   }
 
   function applyTimelineFilter(targetYear) {
-    // For point datasets: filter the original GeoJSON and call setData on the source so clusters are recomputed
-    pointSourceIds.forEach(sourceId => {
-      const original = pointSourceData[sourceId];
+    // For point datasets: filter the original GeoJSON and call setData on the source so clusters are recomputed.
+    // Permissive date policy: missing start_date/end_date means "visible" (start -> -Infinity, end -> +Infinity).
+    window._pointSourceIds.forEach(sourceId => {
+      const original = window._pointSourceData[sourceId];
       if (!original) return;
       const filteredFeatures = (original.features || []).filter(f => {
-        const sy = f.properties && f.properties.start_year;
-        const ey = f.properties && f.properties.end_year;
-        const hasStart = Number.isFinite(sy);
-        const hasEnd = Number.isFinite(ey);
-        // Both start and end must bound the target year.
-        // start_year may be null (treated as not-visible); end_year defaulted to 9999 earlier in loading.
-        return (hasStart ? sy <= targetYear : false) && (hasEnd ? ey >= targetYear : false);
+        const syRaw = f.properties && f.properties.start_year;
+        const eyRaw = f.properties && f.properties.end_year;
+        const sy = Number.isFinite(syRaw) ? syRaw : -9999;
+        const ey = Number.isFinite(eyRaw) ? eyRaw : 9999;
+        return sy <= targetYear && ey >= targetYear;
       });
       const filtered = { type: 'FeatureCollection', features: filteredFeatures };
       try {
@@ -187,7 +186,6 @@
     const manifest = await manifestRes.json();
 
     // Track which sources are point/clustered so we can wait for them
-    // (pointSourceIds is used instead of the previous clusteredPointSourceIds)
     for (const dataset of manifest.datasets) {
       const sourceId = dataset.id;
       const isPoint = dataset.geometryType === 'point';
@@ -224,14 +222,14 @@
       };
 
       if (isPoint) {
-        // compute the min start year and max end year for clusters
+        // compute the min start year and max end year for clusters (kept, harmless)
         sourceOptions.clusterProperties = {
           min_start_year: ['min', ['get', 'start_year']],
           max_end_year: ['max', ['get', 'end_year']]
         };
         // store original point data so the timeline can rebuild filtered subsets and call setData
-        pointSourceData[sourceId] = geojson;
-        pointSourceIds.push(sourceId);
+        window._pointSourceData[sourceId] = geojson;
+        window._pointSourceIds.push(sourceId);
       }
 
       map.addSource(sourceId, sourceOptions);
@@ -392,8 +390,8 @@
       })));
     }
 
-    if (pointSourceIds.length > 0) {
-      await waitForSourcesReady(pointSourceIds);
+    if (window._pointSourceIds.length > 0) {
+      await waitForSourcesReady(window._pointSourceIds);
     }
 
     // Now clusters should have their aggregated properties; initialize timeline and apply the initial filter
