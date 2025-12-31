@@ -31,6 +31,10 @@
   let allPointLayers = [];
   let allPolygonLayers = [];
 
+  // Keep original point source data here so we can filter and call setData (this recomputes clusters)
+  const pointSourceData = {};
+  const pointSourceIds = [];
+
   function formatDate(isoDate) {
     if (!isoDate) return '';
     const [year, month, day] = isoDate.split('-');
@@ -40,37 +44,29 @@
   }
 
   function applyTimelineFilter(targetYear) {
-    // Filter for individual (unclustered) point features
-    const pointYearFilter = [
-      'all',
-      ['<=', ['get', 'start_year'], targetYear],
-      ['>=', ['get', 'end_year'], targetYear]
-    ];
-
-    // Filter for cluster features - use aggregated clusterProperties
-    // Ensure aggregated props exist before using them to avoid hiding clusters
-    const clusterYearFilter = [
-      'all',
-      ['has', 'point_count'],
-      ['has', 'min_start_year'],
-      ['has', 'max_end_year'],
-      ['<=', ['get', 'min_start_year'], targetYear],
-      ['>=', ['get', 'max_end_year'], targetYear]
-    ];
-
-    allPointLayers.forEach(layerId => {
-      const sourceId = layerId.split('-')[0];
-      ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
-        const fullId = `${sourceId}-${suffix}`;
-        if (!map.getLayer(fullId)) return;
-        if (suffix === 'clusters' || suffix === 'cluster-count') {
-          map.setFilter(fullId, clusterYearFilter);
-        } else {
-          map.setFilter(fullId, pointYearFilter);
-        }
+    // For point datasets: filter the original GeoJSON and call setData on the source so clusters are recomputed
+    pointSourceIds.forEach(sourceId => {
+      const original = pointSourceData[sourceId];
+      if (!original) return;
+      const filteredFeatures = (original.features || []).filter(f => {
+        const sy = f.properties && f.properties.start_year;
+        const ey = f.properties && f.properties.end_year;
+        const hasStart = Number.isFinite(sy);
+        const hasEnd = Number.isFinite(ey);
+        // Both start and end must bound the target year.
+        // start_year may be null (treated as not-visible); end_year defaulted to 9999 earlier in loading.
+        return (hasStart ? sy <= targetYear : false) && (hasEnd ? ey >= targetYear : false);
       });
+      const filtered = { type: 'FeatureCollection', features: filteredFeatures };
+      try {
+        const src = map.getSource(sourceId);
+        if (src) src.setData(filtered);
+      } catch (e) {
+        console.warn('Failed to setData for source', sourceId, e);
+      }
     });
 
+    // For polygon layers: use layer filters (polygons are never clustered)
     allPolygonLayers.forEach(fillId => {
       if (!map.getLayer(fillId)) return;
       const polyFilter = [
@@ -191,8 +187,7 @@
     const manifest = await manifestRes.json();
 
     // Track which sources are point/clustered so we can wait for them
-    const clusteredPointSourceIds = [];
-
+    // (pointSourceIds is used instead of the previous clusteredPointSourceIds)
     for (const dataset of manifest.datasets) {
       const sourceId = dataset.id;
       const isPoint = dataset.geometryType === 'point';
@@ -234,7 +229,9 @@
           min_start_year: ['min', ['get', 'start_year']],
           max_end_year: ['max', ['get', 'end_year']]
         };
-        clusteredPointSourceIds.push(sourceId);
+        // store original point data so the timeline can rebuild filtered subsets and call setData
+        pointSourceData[sourceId] = geojson;
+        pointSourceIds.push(sourceId);
       }
 
       map.addSource(sourceId, sourceOptions);
@@ -372,7 +369,7 @@
       }
     } // end for datasets
 
-    // Wait for all clustered point sources to finish processing so that clusterProperties are available
+    // Wait for all point sources to finish processing so that clusterProperties are available
     async function waitForSourcesReady(ids) {
       await Promise.all(ids.map(id => new Promise(resolve => {
         try {
@@ -395,8 +392,8 @@
       })));
     }
 
-    if (clusteredPointSourceIds.length > 0) {
-      await waitForSourcesReady(clusteredPointSourceIds);
+    if (pointSourceIds.length > 0) {
+      await waitForSourcesReady(pointSourceIds);
     }
 
     // Now clusters should have their aggregated properties; initialize timeline and apply the initial filter
