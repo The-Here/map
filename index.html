@@ -331,16 +331,39 @@
           });
         });
 
-        // click point -> popup (prefer feature-level label/event_id then dataset label)
+        // click point -> popup (match polygon popup format)
         map.on('click', `${baseId}-unclustered-point`, (e) => {
           const f = map.queryRenderedFeatures(e.point, { layers: [`${baseId}-unclustered-point`] })[0];
           if (!f) return;
           const p = f.properties;
+
           const title = p.label || p.event_id || p.id || dataset.label || 'Event';
-          const start = formatDate(p.start_date);
-          const dates = start || '';
-          const html = `<strong>${title}</strong><br>${dates}`;
-          new mapboxgl.Popup().setLngLat(e.lngLat).setHTML(html).addTo(map);
+          // prefer start_date or date
+          const dateStr = p.start_date || p.date || '';
+          const formattedDate = dateStr ? formatDate(dateStr) : '';
+
+          // Country: try time-specific country fields first, then general ones
+          let countries = p.countries_1914 || p.countries_1915 || p.countries_1916 || p.countries_1917 || p.countries || p.country || [];
+          if (typeof countries === 'string') countries = countries.split(',').map(c => c.trim());
+          const countriesList = Array.isArray(countries) && countries.length ? countries.join(', ') : '';
+
+          // Location name: several common property names
+          const location = p.location || p.place || p.location_name || p.site || p.city || '';
+
+          // Wiki link
+          const wikiHref = p.wiki || p.wikipedia || p.url || '';
+          const wiki = wikiHref ? `<a href="${wikiHref}" target="_blank" style="color: #1e40af;">Wikipedia</a>` : '';
+
+          const html = `
+            <div style="max-width: 280px; padding: 8px;">
+              <strong style="font-size: 14px;">${title}</strong><br>
+              ${formattedDate ? formattedDate + '<br>' : ''}
+              ${location ? location + '<br>' : ''}
+              ${countriesList ? countriesList + '<br>' : ''}
+              ${wiki}
+            </div>
+          `;
+          new mapboxgl.Popup({ offset: 15 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
         });
 
       } else if (isPolygon) {
