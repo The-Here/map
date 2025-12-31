@@ -21,8 +21,8 @@
     container: 'map',
     style: 'mapbox://styles/mapbox/light-v11',
     projection: 'mercator',
-    center: [0, 20],
-    zoom: 1,
+    center: [15, 45],
+    zoom: 3,
     minZoom: 1,
     maxZoom: 12
   });
@@ -41,33 +41,28 @@
 
   function applyTimelineFilter(targetYear) {
     // Filter for individual (unclustered) point features
+    // Must check BOTH that it's not a cluster AND that it matches the year
     const pointYearFilter = [
       'all',
+      ['!', ['has', 'point_count']],
       ['<=', ['get', 'start_year'], targetYear],
       ['>=', ['get', 'end_year'], targetYear]
     ];
 
-    // Filter for cluster features - use aggregated clusterProperties
-    // Ensure aggregated props exist before using them to avoid hiding clusters
-    const clusterYearFilter = [
-      'all',
-      ['has', 'point_count'],
-      ['has', 'min_start_year'],
-      ['has', 'max_end_year'],
-      ['<=', ['get', 'min_start_year'], targetYear],
-      ['>=', ['get', 'max_end_year'], targetYear]
-    ];
+    // Clusters are geographic only - they show density, not time
+    // Time filter is applied to individual points; clusters recompute from visible points
+    // No time-based filtering on clusters themselves
 
     allPointLayers.forEach(layerId => {
       const sourceId = layerId.split('-')[0];
       ['clusters', 'cluster-count', 'unclustered-point'].forEach(suffix => {
         const fullId = `${sourceId}-${suffix}`;
         if (!map.getLayer(fullId)) return;
-        if (suffix === 'clusters' || suffix === 'cluster-count') {
-          map.setFilter(fullId, clusterYearFilter);
-        } else {
+        if (suffix === 'unclustered-point') {
           map.setFilter(fullId, pointYearFilter);
         }
+        // Clusters and cluster-count layers get no year filter
+        // They automatically cluster only the currently visible (time-filtered) points
       });
     });
 
@@ -111,8 +106,8 @@
   function initTimeline() {
     document.body.insertAdjacentHTML('beforeend', `
       <div id="timeline">
-        <input id="slider" type="range" min="0" max="1000" value="850" step="1">
-        <div id="year-label">1975</div>
+        <input id="slider" type="range" min="0" max="1000" value="632" step="1">
+        <div id="year-label">1916</div>
       </div>
     `);
 
@@ -125,8 +120,8 @@
       updateYearLabel(targetYear, sliderValue);
     });
 
-    const initialYear = sliderToYear(850);
-    updateYearLabel(initialYear, 850);
+    const initialYear = sliderToYear(632);
+    updateYearLabel(initialYear, 632);
     window.applyTimelineFilter(initialYear);
   }
 
@@ -205,14 +200,20 @@
       if (geojson.features) {
         geojson.features.forEach(f => {
           if (!f.properties) f.properties = {};
-          if (f.properties.start_date) {
-            const parsed = parseInt(String(f.properties.start_date).split('-')[0], 10);
+          
+          // Try start_date first, fall back to date property
+          const startDateValue = f.properties.start_date || f.properties.date;
+          if (startDateValue) {
+            const parsed = parseInt(String(startDateValue).split('-')[0], 10);
             f.properties.start_year = Number.isFinite(parsed) ? parsed : null;
           } else {
             f.properties.start_year = null;
           }
-          if (f.properties.end_date) {
-            const parsed = parseInt(String(f.properties.end_date).split('-')[0], 10);
+          
+          // Try end_date first, fall back to date property
+          const endDateValue = f.properties.end_date || f.properties.date;
+          if (endDateValue) {
+            const parsed = parseInt(String(endDateValue).split('-')[0], 10);
             f.properties.end_year = Number.isFinite(parsed) ? parsed : null;
           } else {
             // open-ended events stay visible after start
@@ -372,7 +373,7 @@
       }
     } // end for datasets
 
-    // Wait for all clustered point sources to finish processing so that clusterProperties are available
+    // Wait for all clustered point sources to finish processing so that clusters are ready
     async function waitForSourcesReady(ids) {
       await Promise.all(ids.map(id => new Promise(resolve => {
         try {
@@ -399,7 +400,7 @@
       await waitForSourcesReady(clusteredPointSourceIds);
     }
 
-    // Now clusters should have their aggregated properties; initialize timeline and apply the initial filter
+    // Now clusters should be ready; initialize timeline and apply the initial filter
     initTimeline();
   });
 </script>
