@@ -41,14 +41,15 @@
     const ey = feature.properties && Number.isFinite(feature.properties.end_year) ? feature.properties.end_year : null;
 
     if (geometryType === 'point') {
-      // Points have a single date -> start_year should equal end_year.
-      // Visible only if the event year equals the target year (start_year <= targetYear <= end_year).
+      // Points: single-date events (start_year === end_year). Visible only if date matches target year.
       return sy !== null && ey !== null && sy <= targetYear && ey >= targetYear;
     } else {
-      // Polygons use start/end ranges (inclusive).
+      // Polygons: use inclusive ranges.
       return sy !== null && ey !== null && sy <= targetYear && ey >= targetYear;
     }
   }
+  // expose for debugging
+  window.isVisibleAt = isVisibleAt;
 
   function formatDate(isoDate) {
     if (!isoDate) return '';
@@ -61,7 +62,6 @@
   function applyTimelineFilter(targetYear) {
     // For each point dataset we maintain a view source (clustered) which we update with a filtered FeatureCollection.
     window.__VIEW_SOURCES.forEach(viewSourceId => {
-      // original dataset id is viewSourceId.replace('-view','')
       const datasetId = viewSourceId.replace(/-view$/, '');
       const raw = window.__RAW_DATA[datasetId];
       if (!raw) return;
@@ -205,12 +205,10 @@
       const res = await fetch(dataset.file);
       const geojson = await res.json();
 
-      // Precompute years on features, but DO NOT mutate the raw dataset for view/filtering later.
-      // We'll create a deep-ish copy for the raw storage where we can safely add properties used by isVisibleAt.
+      // Precompute years on features, but DO NOT mutate the original geojson variable for view/filtering later.
       const raw = {
         type: 'FeatureCollection',
         features: (geojson.features || []).map(f => {
-          // shallow clone feature and its properties object so we can annotate years on RAW copy
           const copy = Object.assign({}, f);
           copy.properties = Object.assign({}, f.properties || {});
 
@@ -243,13 +241,18 @@
               copy.properties.end_year = 9999;
             }
           } else {
-            // default behavior for unknown geometry types
             copy.properties.start_year = null;
             copy.properties.end_year = null;
           }
 
-          // Ensure stable event id exists (we don't generate new ids here).
-          // If your dataset uses 'event_id' or 'id' ensure it's present in the original data.
+          // Normalize label strictly from data listed in the manifest (feature properties first, then dataset.label)
+          const props = copy.properties || {};
+          // Prefer per-feature fields only; fall back to the dataset label from the manifest if feature has none
+          props.label = props.name || props.title || props.event_id || props.id || dataset.label || null;
+          // Stabilize top-level id from event_id if present
+          if (props.event_id && !copy.id) copy.id = props.event_id;
+          copy.properties = props;
+
           return copy;
         })
       };
@@ -269,15 +272,13 @@
           // start with an empty collection; applyTimelineFilter will populate it
           data: { type: 'FeatureCollection', features: [] },
           cluster: true,
-          // clusterProperties are optional. Keep them harmless if you want to aggregate stats.
           clusterProperties: {
             min_start_year: ['min', ['get', 'start_year']],
-            max_end_year: ['max', ['get', 'end_year']],
-            // keep a stable total count (mapbox provides point_count)
+            max_end_year: ['max', ['get', 'end_year']]
           }
         });
 
-        // Layers must reference the VIEW source (so clustering is a layer/source concern, isolated from raw data)
+        // Layers reference the VIEW source (clustering is isolated to the view)
         map.addLayer({
           id: `${baseId}-clusters`,
           type: 'circle',
@@ -330,12 +331,12 @@
           });
         });
 
-        // click point -> popup
+        // click point -> popup (prefer feature-level label/event_id then dataset label)
         map.on('click', `${baseId}-unclustered-point`, (e) => {
           const f = map.queryRenderedFeatures(e.point, { layers: [`${baseId}-unclustered-point`] })[0];
           if (!f) return;
           const p = f.properties;
-          const title = p.label || p.id || dataset.label || 'Event';
+          const title = p.label || p.event_id || p.id || dataset.label || 'Event';
           const start = formatDate(p.start_date);
           const dates = start || '';
           const html = `<strong>${title}</strong><br>${dates}`;
@@ -422,14 +423,12 @@
       })));
     }
 
-    // build list of view source ids from window.__VIEW_SOURCES (already filled)
     if (window.__VIEW_SOURCES.length > 0) {
       await waitForSourcesReady(window.__VIEW_SOURCES.concat(Object.keys(window.__RAW_DATA).map(id => `${id}-raw`)));
     }
 
     // Initialize view sources with filtered data for the initial timeline year
     const initialYear = (function(){ const v = sliderToYear(850); return v; })();
-    // populate each view source based on RAW data
     window.__VIEW_SOURCES.forEach(viewId => {
       const datasetId = viewId.replace(/-view$/, '');
       const raw = window.__RAW_DATA[datasetId];
