@@ -218,7 +218,7 @@
         });
       }
 
-      // Configure source; add clusterProperties for point sources so clusters have aggregated min/max
+      // Configure source with clustering enabled for point sources
       const sourceOptions = {
         type: 'geojson',
         data: geojson,
@@ -226,11 +226,6 @@
       };
 
       if (isPoint) {
-        // compute the min start year and max end year for clusters
-        sourceOptions.clusterProperties = {
-          min_start_year: ['min', ['get', 'start_year']],
-          max_end_year: ['max', ['get', 'end_year']]
-        };
         clusteredPointSourceIds.push(sourceId);
       }
 
