@@ -1,1 +1,6 @@
+{
+  "schema": "schema/action.schema.json",
+  "actions_path": "/actions",
+  "hashing": "pending"
+}
 
