@@ -15,27 +15,69 @@ A canonical data layer for **atomic actions in time and place**.
 - Interpretation, motives, blame, sides
 - Moral or emotional framing
 
-## Atomic rule
-1 event = 1 action label · 1 place · 1 time
-If this cannot be satisfied, the event is skipped.
+## Terminology
+- Atomic unit = Action
+- The word “event” is forbidden everywhere
 
-## Action rule
-`action` is the human-readable event label.
+## Atomic rule
+1 action = 1 action label · 1 place · 1 time
+If this cannot be satisfied, the action is skipped.
+
+## Action title rule
+`action` is the human-readable label.
 - No sentences
 - No dates
 - No articles (“the”, “a”)
 - No adjectives
 - As short as possible, as specific as necessary
 
+## time.source_text
+- Verbatim date string exactly as shown in the source
+- MUST NOT be normalized, parsed, reordered, localized, or rewritten
+- Preserves original spelling, order, punctuation, and locale
+- This field is the authoritative historical record
 
-## Time precision rule
-- Time is stored **exactly as stated in the source**
-- Precision is explicit: `day | month | year | century | era`
+# time.display
+- Human-readable display string for UI only
+- Generated only when formatting does not increase precision
+- Formatting only (e.g. 1914, Aug 3)
+- MUST NOT add, assume, infer, or resolve any missing or ambiguous components
+- MUST NOT exist for ambiguous numeric dates (e.g. 8/3/1914)
+- If absent, clients MUST render time.source_text verbatim
+
+# time.precision
+- Machine-usable precision marker
+- One of: day | month | year | century | era
+- Derived strictly from time.source_text
+- This is the only time field allowed for logic, sorting, or filtering
+
+# Precision rules
+- Time is stored exactly as stated in the source
+- Precision is explicit and minimal
 - Missing precision is NEVER inferred
-- Precision may decay into the past; it may never increase
+- Precision may decay into the past
+- Precision may never increase
+- Formatting MUST NOT affect precision
+
+# Ambiguous dates
+- Numeric-only dates (8/3/1914, 3/8/1914) are treated as ambiguous
+- Ambiguity is never resolved by the system
+- time.display MUST NOT be generated for ambiguous dates
+- Only textual month names (August 3, 1914, 3 August 1914) are considered unambiguous
+
+# Display format
+- Canonical display format (when allowed):
+YYYY, Mon D → 1914, Aug 3
+- Month abbreviation uses Title Case (Aug, not AUG)
+
+# UI invariant
+If time.display is missing, the interface must render time.source_text exactly as stored.
+
+# Core principle
+Precision encodes truth. Formatting encodes convenience. Ambiguity is preserved, never resolved.
 
 ## References (required)
-Each event MUST include:
+Each action MUST include:
 - exactly 1 primary reference
 - 0–2 secondary references
 Each reference MUST include:
@@ -45,16 +87,16 @@ Each reference MUST include:
 ## Hashing & anchoring
 Two required fingerprints:
 1. reference content hash (freezes source state)
-2. event payload hash (freezes the assertion)
+2. action payload hash (freezes the assertion)
 
-Event hashes are Merkle-batched and anchored on a public chain.
-Anchoring proves: **this exact event record existed no later than the anchored block time**.
+Actions hashes are Merkle-batched and anchored on a public chain.
+Anchoring proves: **this exact action record existed no later than the anchored block time**.
 
 ## Source of truth
-- Event JSON files are canonical
+- Action JSON files are canonical
 - `manifest.geojson` is a derived rendering artifact only
 
 ## Authority
-- `schema/event.schema.json` is enforcement
-- `prompts/atomic_event.md` is generator law
+- `schema/action.schema.json` is enforcement
+- `prompts/atomic_action.md` is generator law
 - README rules override any tool behavior
