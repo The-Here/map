@@ -1,4 +1,4 @@
-# The Here™ — Atomic EventActions Ledger
+# The Here™ — Atomic Actions Ledger
 
 This repository stores **atomic historical actions records** and cryptographic receipts proving:
 - integrity (tamper-evidence)
