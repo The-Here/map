@@ -100,3 +100,9 @@ Anchoring proves: **this exact action record existed no later than the anchored 
 - `schema/action.schema.json` is enforcement
 - `prompts/atomic_action.md` is generator law
 - README rules override any tool behavior
+
+## Repository invariants
+- Files under `actions/golden/` are the only canonical action definitions; all other files are derived, illustrative, or tooling artifacts.
+- Canonical status is determined exclusively by filesystem path, never by JSON fields or metadata.
+- `index.json` and `manifest.geojson` are always rebuildable and must never be cited as sources of truth.
+
