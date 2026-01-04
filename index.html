@@ -1,1 +1,406 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>The Here — Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; }
+    #map { position: absolute; inset: 0; }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+
+<script>
+  mapboxgl.accessToken = 'pk.eyJ1Ijoibm9ydGhlZGRhIiwiYSI6ImNtYmVjczJ4cTFndnEycW42cnFwbjBjbzcifQ.XYvDSeoj0uD6K8WpK5v0mQ';
+
+  const map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/light-v11',
+    projection: 'mercator',
+    center: [0, 20],
+    zoom: 1,
+    minZoom: 1,
+    maxZoom: 12
+  });
+
+  // ==================== TIMELINE ====================
+  const TIME_SEGMENTS = [
+    { sliderStart: 0,   sliderEnd: 100,   yearStart: -3100, yearEnd: 0 },
+    { sliderStart: 100, sliderEnd: 200,   yearStart: 0,     yearEnd: 1600 },
+    { sliderStart: 200, sliderEnd: 300,   yearStart: 1600,  yearEnd: 1700 },
+    { sliderStart: 300, sliderEnd: 400,   yearStart: 1700,  yearEnd: 1800 },
+    { sliderStart: 400, sliderEnd: 500,   yearStart: 1800,  yearEnd: 1850 },
+    { sliderStart: 500, sliderEnd: 600,   yearStart: 1850,  yearEnd: 1900 },
+    { sliderStart: 600, sliderEnd: 700,   yearStart: 1900,  yearEnd: 1950 },
+    { sliderStart: 700, sliderEnd: 800,   yearStart: 1950,  yearEnd: 1975 },
+    { sliderStart: 800, sliderEnd: 900,   yearStart: 1975,  yearEnd: 2000 },
+    { sliderStart: 900, sliderEnd: 1000,  yearStart: 2000,  yearEnd: 2000 }
+  ];
+
+  function sliderToYear(sliderValue) {
+    for (const segment of TIME_SEGMENTS) {
+      if (sliderValue >= segment.sliderStart && sliderValue <= segment.sliderEnd) {
+        const segmentProgress = (sliderValue - segment.sliderStart) / (segment.sliderEnd - segment.sliderStart);
+        return Math.round(segment.yearStart + segmentProgress * (segment.yearEnd - segment.yearStart));
+      }
+    }
+    return 2000;
+  }
+
+  function updateYearLabel(targetYear, sliderValue) {
+    const label = document.getElementById('year-label');
+    const slider = document.getElementById('slider');
+    if (!label || !slider) return;
+
+    label.textContent = targetYear >= 0 ? `${targetYear}` : `${Math.abs(targetYear)} BCE`;
+
+    const sliderRect = slider.getBoundingClientRect();
+    const percent = sliderValue / 1000;
+    let thumbX = sliderRect.left + percent * sliderRect.width;
+
+    const padding = 10;
+    const labelWidth = label.offsetWidth || 60;
+    const minX = sliderRect.left + padding;
+    const maxX = sliderRect.right - labelWidth - padding;
+
+    thumbX = Math.min(Math.max(thumbX, minX), maxX);
+    label.style.left = `${thumbX}px`;
+  }
+
+  // ==================== TIMELINE CSS ====================
+  const timelineStyle = document.createElement('style');
+  timelineStyle.textContent = `
+    #timeline {
+      position: absolute; bottom: 10px; left: 0; right: 0;
+      height: 25px; background: rgba(255,255,255,0.95);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 1000;
+    }
+    #slider {
+      width: 90%; height: 4px; margin: 0 20px;
+      -webkit-appearance: none; appearance: none;
+      background: #ddd; border-radius: 2px; outline: none;
+    }
+    #slider::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 18px; height: 18px; background: #37879d;
+      border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    #slider::-moz-range-thumb {
+      width: 18px; height: 18px; background: #37879d;
+      border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      border: none;
+    }
+    #year-label {
+      position: absolute; bottom: 28px;
+      font-size: 13px; font-weight: 600;
+      background: #37879d; color: white; padding: 4px 10px;
+      border-radius: 15px; white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      transition: all 0.1s ease; pointer-events: none;
+    }
+  `;
+  document.head.appendChild(timelineStyle);
+
+  // ==================== DATA LOADING (SCALES, SAME CLUSTERING) ====================
+  // Folder you will generate files into:
+  //   actions/by-year/1975.geojson
+  //   actions/by-year/1989.geojson
+  //   actions/by-year/bce_3100.geojson
+  const ACTIONS_SOURCE_ID = 'actions';
+
+  // Small LRU cache so slider scrubbing doesn't refetch constantly
+  const actionCache = new Map();
+  const MAX_CACHE = 20;
+
+  let lastLoadedYear = null;
+  let requestSeq = 0;
+
+  function yearToPath(y) {
+    return (y >= 0)
+      ? `actions/by-year/${y}.geojson`
+      : `actions/by-year/bce_${Math.abs(y)}.geojson`;
+  }
+
+  function parseYearFromDate(dateStr) {
+  if (!dateStr) return null;
+  const s = String(dateStr).trim();
+
+  // ISO: 1914-08-03 or -3100-01-01
+  let m = s.match(/^(-?\d+)-(\d{2})-(\d{2})$/);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    return Number.isFinite(y) ? y : null;
+  }
+
+  // Your format: 1914, Aug 3  (comma optional)
+  m = s.match(/^(-?\d+)\s*,\s*([A-Za-z]{3})\s+(\d{1,2})$/);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    return Number.isFinite(y) ? y : null;
+  }
+
+  // Optional: 3100 BCE, Aug 3  -> year = -3100
+  m = s.match(/^(\d+)\s*BCE\s*,\s*([A-Za-z]{3})\s+(\d{1,2})$/i);
+  if (m) {
+    const y = -parseInt(m[1], 10);
+    return Number.isFinite(y) ? y : null;
+  }
+
+  return null;
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const s = String(dateStr).trim();
+
+  // If already "1914, Aug 3" (or "-3100, Aug 3"), normalize and return
+  let m = s.match(/^(-?\d+)\s*,\s*([A-Za-z]{3})\s+(\d{1,2})$/);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    const mon = (m[2][0].toUpperCase() + m[2].slice(1, 3).toLowerCase()); // Aug
+    const d = parseInt(m[3], 10);
+    if (!Number.isFinite(y) || !Number.isFinite(d)) return s;
+    return (y < 0) ? `${Math.abs(y)} BCE, ${mon} ${d}` : `${y}, ${mon} ${d}`;
+  }
+
+  // ISO -> "YYYY, Mon D"
+  m = s.match(/^(-?\d+)-(\d{2})-(\d{2})$/);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    const day = parseInt(m[3], 10);
+    const shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const mon = shortMonths[month - 1];
+    if (!mon || !Number.isFinite(y) || !Number.isFinite(day)) return s;
+    return (y < 0) ? `${Math.abs(y)} BCE, ${mon} ${day}` : `${y}, ${mon} ${day}`;
+  }
+
+  return s;
+}
+
+ 
+
+  function normalizeGeojsonForUI(gj) {
+    const features = Array.isArray(gj && gj.features) ? gj.features : [];
+    return {
+      type: 'FeatureCollection',
+      features: features.map(f => {
+        const copy = Object.assign({}, f);
+        copy.properties = Object.assign({}, f.properties || {});
+
+        // derive years (keeps your old logic intact)
+        const y = parseYearFromDate(copy.properties.start_date || copy.properties.date);
+        copy.properties.start_year = (y === null) ? null : y;
+        copy.properties.end_year = (y === null) ? null : y;
+
+        // stable label for popup
+        const p = copy.properties;
+        p.label = p.name || p.title || p.action_id || p.event_id || p.id || copy.id || 'Action';
+
+        // stabilize top-level id if you store action_id/event_id
+        if (!copy.id) copy.id = p.action_id || p.event_id || p.id || undefined;
+
+        return copy;
+      })
+    };
+  }
+
+  async function setYear(targetYear) {
+    if (!map.getSource(ACTIONS_SOURCE_ID)) return;
+    if (targetYear === lastLoadedYear) return;
+    lastLoadedYear = targetYear;
+
+    const seq = ++requestSeq;
+    const path = yearToPath(targetYear);
+
+    // cached?
+    if (actionCache.has(path)) {
+      map.getSource(ACTIONS_SOURCE_ID).setData(actionCache.get(path));
+      return;
+    }
+
+    // fetch
+    try {
+      const res = await fetch(path, { cache: 'force-cache' });
+
+      // if file doesn't exist, show empty (no noise)
+      if (!res.ok) {
+        const empty = { type: 'FeatureCollection', features: [] };
+        if (seq === requestSeq) map.getSource(ACTIONS_SOURCE_ID).setData(empty);
+        return;
+      }
+
+      const gj = await res.json();
+      const normalized = normalizeGeojsonForUI(gj);
+
+      // LRU cache insert
+      actionCache.set(path, normalized);
+      if (actionCache.size > MAX_CACHE) {
+        const firstKey = actionCache.keys().next().value;
+        actionCache.delete(firstKey);
+      }
+
+      // last-response-wins guard
+      if (seq === requestSeq) {
+        map.getSource(ACTIONS_SOURCE_ID).setData(normalized);
+      }
+    } catch (e) {
+      // network/parse error -> show empty, keep UI alive
+      const empty = { type: 'FeatureCollection', features: [] };
+      if (seq === requestSeq) map.getSource(ACTIONS_SOURCE_ID).setData(empty);
+      console.warn('Failed to load year file:', path, e);
+    }
+  }
+
+  function formatDate(isoDate) {
+    if (!isoDate) return '';
+    const m = String(isoDate).match(/^(-?\d+)-(\d{2})-(\d{2})$/);
+    if (!m) return String(isoDate);
+
+    const yearNum = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    const day = parseInt(m[3], 10);
+
+    const shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const mon = shortMonths[(month - 1)] || '';
+
+    if (!Number.isFinite(yearNum) || !Number.isFinite(month) || !Number.isFinite(day)) return String(isoDate);
+
+    if (yearNum < 0) return `${Math.abs(yearNum)} BCE, ${mon} ${day}`;
+    return `${yearNum}, ${mon} ${day}`;
+  }
+
+  // ==================== UI ====================
+  function initTimeline() {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="timeline">
+        <input id="slider" type="range" min="0" max="1000" value="850" step="1">
+        <div id="year-label">1975</div>
+      </div>
+    `);
+
+    const slider = document.getElementById('slider');
+
+    let raf = null;
+    slider.addEventListener('input', (e) => {
+      const sliderValue = parseFloat(e.target.value);
+      const targetYear = sliderToYear(sliderValue);
+      updateYearLabel(targetYear, sliderValue);
+
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => setYear(targetYear));
+    });
+
+    const initialSliderValue = 850;
+    const initialYear = sliderToYear(initialSliderValue);
+    updateYearLabel(initialYear, initialSliderValue);
+    setYear(initialYear);
+  }
+
+  // ==================== MAP ====================
+  map.on('load', () => {
+    map.addSource(ACTIONS_SOURCE_ID, {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+      cluster: true,
+      clusterProperties: {
+        min_start_year: ['min', ['get', 'start_year']],
+        max_end_year:   ['max', ['get', 'end_year']]
+      }
+    });
+
+    map.addLayer({
+      id: 'actions-clusters',
+      type: 'circle',
+      source: ACTIONS_SOURCE_ID,
+      filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': ['step', ['get', 'point_count'], '#51bbd6', 10, '#f1f075', 30, '#f28cb1'],
+        'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 30, 25],
+        'circle-opacity': 0.9,
+        'circle-stroke-color': '#fff',
+        'circle-stroke-width': 1
+      }
+    });
+
+    map.addLayer({
+      id: 'actions-cluster-count',
+      type: 'symbol',
+      source: ACTIONS_SOURCE_ID,
+      filter: ['has', 'point_count'],
+      layout: {
+        'text-field': ['get', 'point_count_abbreviated'],
+        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+        'text-size': 12
+      },
+      paint: { 'text-color': '#000000' }
+    });
+
+    map.addLayer({
+      id: 'actions-unclustered',
+      type: 'circle',
+      source: ACTIONS_SOURCE_ID,
+      filter: ['!', ['has', 'point_count']],
+      paint: {
+        'circle-radius': 8,
+        'circle-color': '#37879d',
+        'circle-opacity': 0.9,
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 1
+      }
+    });
+
+    // click cluster -> expand (same behavior you liked)
+    map.on('click', 'actions-clusters', (e) => {
+      const f = map.queryRenderedFeatures(e.point, { layers: ['actions-clusters'] })[0];
+      if (!f) return;
+      const clusterId = f.properties.cluster_id;
+      map.getSource(ACTIONS_SOURCE_ID).getClusterExpansionZoom(clusterId, (err, zoom) => {
+        if (err) return;
+        map.easeTo({ center: f.geometry.coordinates, zoom });
+      });
+    });
+
+    // click point -> popup (same format, but “Action” terminology)
+    map.on('click', 'actions-unclustered', (e) => {
+      const f = map.queryRenderedFeatures(e.point, { layers: ['actions-unclustered'] })[0];
+      if (!f) return;
+      const p = f.properties || {};
+
+      const title = p.label || p.action_id || p.event_id || p.id || 'Action';
+      const dateStr = p.start_date || p.date || '';
+      const formattedDate = dateStr ? formatDate(dateStr) : '';
+
+      let countries = p.countries || p.country || [];
+      if (typeof countries === 'string') countries = countries.split(',').map(c => c.trim());
+      const countriesList = Array.isArray(countries) && countries.length ? countries.join(', ') : '';
+
+      const location = p.location || p.place || p.location_name || p.site || p.city || '';
+
+      const linkHref = p.wiki || p.wikipedia || p.url || '';
+      const link = linkHref ? `<a href="${linkHref}" target="_blank" style="color: #1e40af;">Reference</a>` : '';
+
+      const html = `
+        <div style="max-width: 280px; padding: 8px;">
+          <strong style="font-size: 14px;">${title}</strong><br>
+          ${formattedDate ? formattedDate + '<br>' : ''}
+          ${location ? location + '<br>' : ''}
+          ${countriesList ? countriesList + '<br>' : ''}
+          ${link}
+        </div>
+      `;
+      new mapboxgl.Popup({ offset: 15 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+    });
+
+    initTimeline();
+  });
+</script>
+</body>
+</html>
