@@ -1,6 +1,12 @@
 {
-  "schema": "schema/action.schema.json",
-  "actions_path": "/actions",
-  "hashing": "pending"
+  "version": 1,
+  "datasets": [
+    {
+      "id": "actions",
+      "label": "Actions",
+      "geometryType": "point",
+      "file": "actions.geojson"
+    }
+  ]
 }
 
