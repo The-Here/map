@@ -195,11 +195,6 @@ function formatDate(dateStr) {
         const copy = Object.assign({}, f);
         copy.properties = Object.assign({}, f.properties || {});
 
-        // derive years (keeps your old logic intact)
-        const y = parseYearFromDate(copy.properties.start_date || copy.properties.date);
-        copy.properties.start_year = (y === null) ? null : y;
-        copy.properties.end_year = (y === null) ? null : y;
-
         // stable label for popup (ONE term)
         const p = copy.properties;
         p.label = p.action || 'Action';
@@ -310,10 +305,6 @@ function formatDate(dateStr) {
       type: 'geojson',
       data: { type: 'FeatureCollection', features: [] },
       cluster: true,
-      clusterProperties: {
-        min_start_year: ['min', ['get', 'start_year']],
-        max_end_year:   ['max', ['get', 'end_year']]
-      }
     });
 
     map.addLayer({
