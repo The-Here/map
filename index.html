@@ -184,7 +184,6 @@ function formatDate(dateStr) {
 
   return s;
 }
-
  
 
   function normalizeGeojsonForUI(gj) {
@@ -366,7 +365,7 @@ function formatDate(dateStr) {
       const p = f.properties || {};
 
       const title = p.action || p.label || 'Action';
-      const dateStr = p.start_date || p.date || '';
+      const dateStr = p.date || '';
       const formattedDate = dateStr ? formatDate(dateStr) : '';
 
       let countries = p.countries || p.country || [];
