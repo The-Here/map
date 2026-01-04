@@ -374,7 +374,7 @@ function formatDate(dateStr) {
       if (!f) return;
       const p = f.properties || {};
 
-      const title = p.label || p.action_id || p.event_id || p.id || 'Action';
+      const title = p.action || p.label || 'Action';
       const dateStr = p.start_date || p.date || '';
       const formattedDate = dateStr ? formatDate(dateStr) : '';
 
