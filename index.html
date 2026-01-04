@@ -200,12 +200,12 @@ function formatDate(dateStr) {
         copy.properties.start_year = (y === null) ? null : y;
         copy.properties.end_year = (y === null) ? null : y;
 
-        // stable label for popup
+        // stable label for popup (ONE term)
         const p = copy.properties;
-        p.label = p.name || p.title || p.action_id || p.event_id || p.id || copy.id || 'Action';
+        p.label = p.action || 'Action';
 
-        // stabilize top-level id if you store action_id/event_id
-        if (!copy.id) copy.id = p.action_id || p.event_id || p.id || undefined;
+        // stabilize top-level id
+        if (!copy.id) copy.id = p.action_id || undefined;
 
         return copy;
       })
