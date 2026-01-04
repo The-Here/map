@@ -1,0 +1,54 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "act_liege_bombing_1914_08_10",
+      "geometry": { "type": "Point", "coordinates": [5.5797, 50.6326] },
+      "properties": {
+        "action": "Bombing Liège",
+        "date": "1914-08-10",
+        "time_precision": "day",
+        "place_name": "Liège",
+        "place_country": "Belgium",
+        "ref_url": "https://en.wikipedia.org/wiki/Battle_of_Li%C3%A8ge?oldid=123456789",
+        "ref_hash_algo": "sha256",
+        "ref_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ]
+}
+
+
+
+
+
+
+
+
+
+{
+  "id": "act_liege_bombing_0001",
+  "action": "Bombing Liège",
+  "place": {
+    "name": "Liège",
+    "country": "Belgium",
+    "lat": 50.6326,
+    "lon": 5.5797
+  },
+  "time": {
+    "value": "1914, Aug 10",
+    "precision": "day"
+    "display": "1914, Aug 10"
+  },
+  "references": {
+    "primary": {
+      "type": "wikipedia",
+      "url": "https://en.wikipedia.org/wiki/Battle_of_Li%C3%A8ge?oldid=123456789",
+      "content_hash": {
+        "algo": "sha256",
+        "value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  }
+}
