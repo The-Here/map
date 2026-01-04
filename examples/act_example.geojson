@@ -10,7 +10,8 @@
         "time": { "value": "1914-08-10", "precision": "day" },
         "place_name": "Liège",
         "place_country": "Belgium",
-        https://en.wikipedia.org/w/index.php?title=Battle_of_Li%C3%A8ge&oldid=123456789
+       "ref_url": "https://en.wikipedia.org/w/index.php?title=Battle_of_Li%C3%A8ge&oldid=123456789
+",
         "ref_hash_algo": "sha256",
         "ref_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       }
