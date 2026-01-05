@@ -191,11 +191,18 @@
       labelEl.style.left = `${x}px`;
     }
 
-    // ==================== DATA LOADING (BUNDLES) ====================
-    const ACTIONS_SOURCE_ID = 'actions';
+    // ==================== DATA LOADING ====================
+    // ONE MAP SOURCE = shared clustering for actions + claims
+    const POINTS_SOURCE_ID = 'points';
+
+    // Claims file can be added later; if missing, map still works.
+    // Put your user claims here when ready:
+    // data/claims/claims.geojson
+    const CLAIMS_URL = 'data/claims/claims.geojson';
 
     function pad4(n) { return String(n).padStart(4, '0'); }
 
+    // Your existing action bundling logic (unchanged)
     function bundlePathForYear(year) {
       if (year < 0) {
         const BCE_START = 3100;
@@ -226,6 +233,7 @@
       return `data/decades/2000s.geojson`;
     }
 
+    // ==================== helpers: parsing + safety ====================
     function parseMaybeJsonObject(v) {
       if (v == null) return null;
       if (typeof v === 'object') return v;
@@ -240,6 +248,50 @@
       }
     }
 
+    function parseMaybeJsonArray(v) {
+      if (v == null) return null;
+      if (Array.isArray(v)) return v;
+      if (typeof v !== 'string') return null;
+      const s = v.trim();
+      if (!s.startsWith('[') || !s.endsWith(']')) return null;
+      try {
+        const arr = JSON.parse(s);
+        return Array.isArray(arr) ? arr : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (m) => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[m]));
+    }
+
+    function tryDomain(url) {
+      try { return new URL(url).hostname; } catch { return ''; }
+    }
+
+    function extractOldid(url) {
+      if (!url) return null;
+      let m = String(url).match(/oldid=(\d+)/);
+      if (m) return m[1];
+      m = String(url).match(/Special:Permalink\/(\d+)/);
+      return m ? m[1] : null;
+    }
+
+    function getTagsArray(p) {
+      if (!p) return [];
+      if (Array.isArray(p.tags)) return p.tags.filter(Boolean);
+      if (typeof p.tags === 'string') {
+        const arr = parseMaybeJsonArray(p.tags);
+        if (arr) return arr.filter(Boolean);
+        // fallback: comma-separated
+        return p.tags.split(',').map(x => x.trim()).filter(Boolean);
+      }
+      return [];
+    }
+
     function getTimeValue(p) {
       if (!p) return null;
 
@@ -249,14 +301,13 @@
       // Preferred: nested "time.value"
       if (p.time && typeof p.time === 'object' && p.time.value != null) return p.time.value;
 
-      // Sometimes Mapbox flattens/serializes objects; accept string time if it looks like a date
+      // Mapbox may serialize objects; accept string time if it looks like JSON or date-like
       if (typeof p.time === 'string') {
         const obj = parseMaybeJsonObject(p.time);
         if (obj && obj.value != null) return obj.value;
         return p.time;
       }
 
-      // Optional alternates
       if (p.time_value != null) return p.time_value;
       if (p.timeValue != null) return p.timeValue;
 
@@ -314,7 +365,6 @@
 
     function featureYear(f) {
       const p = (f && f.properties) ? f.properties : {};
-
       const tv = getTimeValue(p);
       const y1 = extractYearFromTimeValue(tv);
       if (y1 != null) return y1;
@@ -327,30 +377,52 @@
       return null;
     }
 
-    function normalizeGeojsonForUI(gj) {
+    // ==================== normalize: actions + claims ====================
+    function normalizeFeatureKindAndId(feature, defaultKind) {
+      const copy = Object.assign({}, feature);
+      copy.properties = Object.assign({}, feature.properties || {});
+      const p = copy.properties;
+
+      // kind
+      p.kind = (p.kind || defaultKind || 'action');
+
+      // label/title
+      p.label = p.action || p.title || p.label || (p.kind === 'claim' ? 'Claim' : 'Action');
+
+      // id (Mapbox likes feature.id)
+      if (!copy.id) {
+        copy.id = p.action_id || p.id || p.claim_id || p.claimId || undefined;
+      }
+
+      // computed year cache
+      if (p._year == null) p._year = featureYear(copy);
+
+      return copy;
+    }
+
+    function normalizeActionsGeojson(gj) {
       const features = Array.isArray(gj && gj.features) ? gj.features : [];
       return {
         type: 'FeatureCollection',
-        features: features.map(f => {
-          const copy = Object.assign({}, f);
-          copy.properties = Object.assign({}, f.properties || {});
-          const p = copy.properties;
-
-          p.label = p.action || p.title || 'Action';
-          if (!copy.id) copy.id = p.action_id || undefined;
-          if (p._year == null) p._year = featureYear(copy);
-
-          return copy;
-        })
+        features: features.map(f => normalizeFeatureKindAndId(f, 'action'))
       };
     }
 
+    function normalizeClaimsGeojson(gj) {
+      const features = Array.isArray(gj && gj.features) ? gj.features : [];
+      return {
+        type: 'FeatureCollection',
+        features: features.map(f => normalizeFeatureKindAndId(f, 'claim'))
+      };
+    }
+
+    // ==================== caching: action bundles ====================
     const bundleCache = new Map(); // path -> { byYear: Map<number, Feature[]>, normalized: FeatureCollection }
     const MAX_BUNDLES = 10;
     let requestSeq = 0;
     let lastLoadedYear = null;
 
-    async function fetchBundle(path) {
+    async function fetchActionBundle(path) {
       if (bundleCache.has(path)) {
         const v = bundleCache.get(path);
         bundleCache.delete(path);
@@ -362,7 +434,7 @@
       if (!res.ok) return null;
 
       const raw = await res.json();
-      const normalized = normalizeGeojsonForUI(raw);
+      const normalized = normalizeActionsGeojson(raw);
 
       const byYear = new Map();
       for (const f of normalized.features) {
@@ -383,8 +455,48 @@
       return entry;
     }
 
+    // ==================== indexing: claims ====================
+    const claimsByYear = new Map();    // year -> Feature[]
+    const claimsByAction = new Map();  // parent_action_id -> Feature[]
+    let claimsLoaded = false;
+
+    function indexClaimFeature(f) {
+      const p = f && f.properties ? f.properties : {};
+      const y = p._year;
+      if (y != null) {
+        if (!claimsByYear.has(y)) claimsByYear.set(y, []);
+        claimsByYear.get(y).push(f);
+      }
+
+      const pid = p.parent_action_id || p.parentActionId || p.action_id || p.actionId;
+      if (pid) {
+        const key = String(pid);
+        if (!claimsByAction.has(key)) claimsByAction.set(key, []);
+        claimsByAction.get(key).push(f);
+      }
+    }
+
+    async function loadClaimsOnce() {
+      if (claimsLoaded) return;
+      claimsLoaded = true;
+
+      try {
+        const res = await fetch(CLAIMS_URL, { cache: 'no-store' });
+        if (!res.ok) return;
+
+        const raw = await res.json();
+        const normalized = normalizeClaimsGeojson(raw);
+
+        for (const f of normalized.features) indexClaimFeature(f);
+      } catch (e) {
+        // Missing file is fine (you’ll add it later)
+        console.warn('Claims not loaded (ok for now):', e);
+      }
+    }
+
+    // ==================== setYear: merge actions + claims into ONE source ====================
     async function setYear(targetYear) {
-      if (!map.getSource(ACTIONS_SOURCE_ID)) return;
+      if (!map.getSource(POINTS_SOURCE_ID)) return;
 
       const y = clamp(Math.round(Number(targetYear)), YEAR_MIN, YEAR_MAX);
       if (y === lastLoadedYear) return;
@@ -394,17 +506,22 @@
       const path = bundlePathForYear(y);
 
       try {
-        const entry = await fetchBundle(path);
-        const featuresForYear = entry && entry.byYear ? (entry.byYear.get(y) || []) : [];
-        const fc = { type: 'FeatureCollection', features: featuresForYear };
+        const entry = await fetchActionBundle(path);
+        const actionFeaturesForYear = entry && entry.byYear ? (entry.byYear.get(y) || []) : [];
+        const claimFeaturesForYear = claimsByYear.get(y) || [];
+
+        const fc = {
+          type: 'FeatureCollection',
+          features: actionFeaturesForYear.concat(claimFeaturesForYear)
+        };
 
         if (seq === requestSeq) {
-          map.getSource(ACTIONS_SOURCE_ID).setData(fc);
+          map.getSource(POINTS_SOURCE_ID).setData(fc);
         }
       } catch (e) {
         const empty = { type: 'FeatureCollection', features: [] };
-        if (seq === requestSeq) map.getSource(ACTIONS_SOURCE_ID).setData(empty);
-        console.warn('Failed to load bundle:', path, e);
+        if (seq === requestSeq) map.getSource(POINTS_SOURCE_ID).setData(empty);
+        console.warn('Failed to load year data:', path, e);
       }
     }
 
@@ -588,18 +705,122 @@
       applyYear(2000);
     }
 
+    // ==================== POPUPS ====================
+    function buildSourceLinkHtml(url) {
+      if (!url) return '';
+      const domain = tryDomain(url);
+      const oldid = extractOldid(url);
+      let label = domain || 'Reference';
+      if (domain && domain.includes('wikipedia.org') && oldid) label = `Wikipedia (oldid ${oldid})`;
+      return `<a href="${url}" target="_blank" rel="noopener" style="color:#1e40af;">${escapeHtml(label)}</a>`;
+    }
+
+    function popupForAction(feature, lngLat) {
+      const p = feature.properties || {};
+      const actionId = String(feature.id || p.id || p.action_id || '');
+
+      const title = p.action || p.title || p.label || 'Action';
+      const dateStr = formatDisplayDate(p);
+
+      const location = p.place_name || p.location || p.place || p.location_name || p.site || p.city || '';
+      const country = p.place_country || p.country || '';
+      const countriesList = (p.countries && typeof p.countries === 'string')
+        ? p.countries
+        : (Array.isArray(p.countries) ? p.countries.join(', ') : country);
+
+      const refUrl = p.ref_url || p.wiki || p.wikipedia || p.url || '';
+      const refLink = buildSourceLinkHtml(refUrl);
+
+      const attached = claimsByAction.get(actionId) || [];
+      const n = attached.length;
+
+      const list = attached
+        .slice(0, 10)
+        .map(c => {
+          const cp = c.properties || {};
+          const t = cp.title || cp.label || cp.claim_id || 'Claim';
+          const tags = getTagsArray(cp).slice(0, 6);
+          const tagsLine = tags.length ? `<div style="opacity:.75; font-size:12px;">${escapeHtml(tags.join(', '))}</div>` : '';
+          const link = (cp.claim_url || cp.ref_url || cp.url) ? `<a href="${cp.claim_url || cp.ref_url || cp.url}" target="_blank" rel="noopener" style="color:#1e40af; font-size:12px;">Open</a>` : '';
+          return `
+            <div style="margin:8px 0; padding-top:8px; border-top:1px solid rgba(0,0,0,0.08);">
+              <div style="display:flex; justify-content:space-between; gap:10px;">
+                <div style="font-weight:700;">${escapeHtml(t)}</div>
+                ${link}
+              </div>
+              ${tagsLine}
+            </div>
+          `;
+        })
+        .join('');
+
+      const more = n > 10 ? `<div style="margin-top:8px; opacity:.75;">+ ${n - 10} more</div>` : '';
+
+      const html = `
+        <div style="max-width: 340px; padding: 8px; font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial;">
+          <div style="font-weight:800; font-size:14px;">${escapeHtml(title)}</div>
+          ${dateStr ? `<div style="margin-top:4px;">${escapeHtml(dateStr)}</div>` : ''}
+          ${location ? `<div style="margin-top:4px;">${escapeHtml(location)}</div>` : ''}
+          ${countriesList ? `<div style="margin-top:2px; opacity:.8;">${escapeHtml(countriesList)}</div>` : ''}
+          ${refLink ? `<div style="margin-top:8px;"><b>Source:</b> ${refLink}</div>` : ''}
+
+          <div style="margin-top:10px; font-weight:800;">Claims attached (${n})</div>
+          ${n ? `<div>${list}${more}</div>` : `<div style="opacity:.75; margin-top:6px;">No claims yet.</div>`}
+        </div>
+      `;
+
+      new mapboxgl.Popup({ offset: 15 }).setLngLat(lngLat).setHTML(html).addTo(map);
+    }
+
+    function popupForClaim(feature, lngLat) {
+      const p = feature.properties || {};
+      const title = p.title || p.label || 'Claim';
+      const dateStr = formatDisplayDate(p);
+
+      const tags = getTagsArray(p).slice(0, 10);
+      const tagsLine = tags.length ? `<div style="margin-top:6px; opacity:.8;">${escapeHtml(tags.join(', '))}</div>` : '';
+
+      const linkHref = p.claim_url || p.ref_url || p.url || '';
+      const link = linkHref ? `<a href="${linkHref}" target="_blank" rel="noopener" style="color:#1e40af;">Open story</a>` : '';
+
+      const parentId = p.parent_action_id || p.parentActionId || '';
+      const parentLine = parentId ? `<div style="margin-top:8px; opacity:.85;"><b>Anchored to:</b> ${escapeHtml(parentId)}</div>` : '';
+
+      const html = `
+        <div style="max-width: 320px; padding: 8px; font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial;">
+          <div style="font-weight:800; font-size:14px;">${escapeHtml(title)}</div>
+          ${dateStr ? `<div style="margin-top:4px;">${escapeHtml(dateStr)}</div>` : ''}
+          ${tagsLine}
+          ${parentLine}
+          ${link ? `<div style="margin-top:10px;">${link}</div>` : ''}
+        </div>
+      `;
+
+      new mapboxgl.Popup({ offset: 15 }).setLngLat(lngLat).setHTML(html).addTo(map);
+    }
+
     // ==================== MAP ====================
-    map.on('load', () => {
-      map.addSource(ACTIONS_SOURCE_ID, {
+    map.on('load', async () => {
+      // Load claims (if file exists). Safe if missing.
+      await loadClaimsOnce();
+
+      // One source for BOTH actions + claims => shared clusters
+      map.addSource(POINTS_SOURCE_ID, {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
         cluster: true,
+        clusterRadius: 50,
+        // count types inside clusters
+        clusterProperties: {
+          action_count: ["+", ["case", ["==", ["get", "kind"], "action"], 1, 0]],
+          claim_count:  ["+", ["case", ["==", ["get", "kind"], "claim"], 1, 0]]
+        }
       });
 
       map.addLayer({
-        id: 'actions-clusters',
+        id: 'points-clusters',
         type: 'circle',
-        source: ACTIONS_SOURCE_ID,
+        source: POINTS_SOURCE_ID,
         filter: ['has', 'point_count'],
         paint: {
           'circle-color': ['step', ['get', 'point_count'], '#51bbd6', 10, '#f1f075', 30, '#f28cb1'],
@@ -610,70 +831,65 @@
         }
       });
 
+      // Cluster label: total + (A x / C y)
       map.addLayer({
-        id: 'actions-cluster-count',
+        id: 'points-cluster-count',
         type: 'symbol',
-        source: ACTIONS_SOURCE_ID,
+        source: POINTS_SOURCE_ID,
         filter: ['has', 'point_count'],
         layout: {
-          'text-field': ['get', 'point_count_abbreviated'],
+          'text-field': [
+            'format',
+            ['get', 'point_count_abbreviated'], { 'font-scale': 1.0 },
+            '\n', {},
+            'A:', { 'font-scale': 0.85 },
+            ['to-string', ['get', 'action_count']], { 'font-scale': 0.85 },
+            '  C:', { 'font-scale': 0.85 },
+            ['to-string', ['get', 'claim_count']], { 'font-scale': 0.85 }
+          ],
           'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-          'text-size': 12
+          'text-size': 12,
+          'text-justify': 'center'
         },
         paint: { 'text-color': '#000000' }
       });
 
+      // Unclustered points (same source). Color by kind.
       map.addLayer({
-        id: 'actions-unclustered',
+        id: 'points-unclustered',
         type: 'circle',
-        source: ACTIONS_SOURCE_ID,
+        source: POINTS_SOURCE_ID,
         filter: ['!', ['has', 'point_count']],
         paint: {
-          'circle-radius': 8,
-          'circle-color': '#37879d',
+          'circle-radius': ['case', ['==', ['get', 'kind'], 'claim'], 7, 8],
+          'circle-color': ['match', ['get', 'kind'], 'claim', '#111827', 'action', '#37879d', '#37879d'],
           'circle-opacity': 0.9,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 1
         }
       });
 
-      map.on('click', 'actions-clusters', (e) => {
-        const f = map.queryRenderedFeatures(e.point, { layers: ['actions-clusters'] })[0];
+      // Cluster click -> zoom in
+      map.on('click', 'points-clusters', (e) => {
+        const f = map.queryRenderedFeatures(e.point, { layers: ['points-clusters'] })[0];
         if (!f) return;
         const clusterId = f.properties.cluster_id;
-        map.getSource(ACTIONS_SOURCE_ID).getClusterExpansionZoom(clusterId, (err, zoom) => {
+        map.getSource(POINTS_SOURCE_ID).getClusterExpansionZoom(clusterId, (err, zoom) => {
           if (err) return;
           map.easeTo({ center: f.geometry.coordinates, zoom });
         });
       });
 
-      map.on('click', 'actions-unclustered', (e) => {
-        const f = map.queryRenderedFeatures(e.point, { layers: ['actions-unclustered'] })[0];
+      // Point click -> action popup or claim popup
+      map.on('click', 'points-unclustered', (e) => {
+        const f = map.queryRenderedFeatures(e.point, { layers: ['points-unclustered'] })[0];
         if (!f) return;
+
         const p = f.properties || {};
+        const kind = p.kind || 'action';
 
-        const title = p.action || p.label || 'Action';
-        const dateStr = formatDisplayDate(p);
-
-        const location = p.place_name || p.location || p.place || p.location_name || p.site || p.city || '';
-        const country = p.place_country || p.country || '';
-        const countriesList = (p.countries && typeof p.countries === 'string')
-          ? p.countries
-          : (Array.isArray(p.countries) ? p.countries.join(', ') : country);
-
-        const linkHref = p.ref_url || p.wiki || p.wikipedia || p.url || '';
-        const link = linkHref ? `<a href="${linkHref}" target="_blank" rel="noopener" style="color:#1e40af;">Reference</a>` : '';
-
-        const html = `
-          <div style="max-width: 280px; padding: 8px;">
-            <strong style="font-size: 14px;">${title}</strong><br>
-            ${dateStr ? dateStr + '<br>' : ''}
-            ${location ? location + '<br>' : ''}
-            ${countriesList ? countriesList + '<br>' : ''}
-            ${link}
-          </div>
-        `;
-        new mapboxgl.Popup({ offset: 15 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+        if (kind === 'claim') popupForClaim(f, e.lngLat);
+        else popupForAction(f, e.lngLat);
       });
 
       initTimeline();
