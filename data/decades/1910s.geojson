@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "act_liege_bombing_1914_08_10",
+      "geometry": { "type": "Point", "coordinates": [5.5797, 50.6326] },
+      "properties": {
+        "action": "Bombing of Liège",
+        "time": { "value": "1914-08-10", "precision": "day" },
+        "place_name": "Liège",
+        "place_country": "Belgium",
+        "ref_url": "https://en.wikipedia.org/w/index.php?title=Battle_of_Li%C3%A8ge&oldid=123456789",
+        "ref_hash_algo": "sha256",
+        "ref_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  ]
+}
+
