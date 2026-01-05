@@ -1,0 +1,19 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "act_example_2000_01_01",
+      "geometry": { "type": "Point", "coordinates": [0, 0] },
+      "properties": {
+        "action": "Example action",
+        "time": { "value": "2000-01-01", "precision": "day" },
+        "place_name": "Null Island",
+        "place_country": "N/A",
+        "ref_url": "https://en.wikipedia.org/w/index.php?title=Null_Island&oldid=1",
+        "ref_hash_algo": "sha256",
+        "ref_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  ]
+}
