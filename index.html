@@ -4,460 +4,612 @@
   <meta charset="utf-8" />
   <title>The Here — Map</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; padding: 0; }
     #map { position: absolute; inset: 0; }
-  </style>
-</head>
-<body>
-<div id="map"></div>
 
-<script>
-  mapboxgl.accessToken = 'pk.eyJ1Ijoibm9ydGhlZGRhIiwiYSI6ImNtYmVjczJ4cTFndnEycW42cnFwbjBjbzcifQ.XYvDSeoj0uD6K8WpK5v0mQ';
-
-  const map = new mapboxgl.Map({
-    container: 'map',
-    style: 'mapbox://styles/mapbox/light-v11',
-    projection: 'mercator',
-    center: [0, 20],
-    zoom: 1,
-    minZoom: 1,
-    maxZoom: 12
-  });
-
-  // ==================== TIMELINE ====================
-  const TIME_SEGMENTS = [
-    { sliderStart: 0,   sliderEnd: 100,   yearStart: -3100, yearEnd: 0 },
-    { sliderStart: 100, sliderEnd: 200,   yearStart: 0,     yearEnd: 1600 },
-    { sliderStart: 200, sliderEnd: 300,   yearStart: 1600,  yearEnd: 1700 },
-    { sliderStart: 300, sliderEnd: 400,   yearStart: 1700,  yearEnd: 1800 },
-    { sliderStart: 400, sliderEnd: 500,   yearStart: 1800,  yearEnd: 1850 },
-    { sliderStart: 500, sliderEnd: 600,   yearStart: 1850,  yearEnd: 1900 },
-    { sliderStart: 600, sliderEnd: 700,   yearStart: 1900,  yearEnd: 1950 },
-    { sliderStart: 700, sliderEnd: 800,   yearStart: 1950,  yearEnd: 1975 },
-    { sliderStart: 800, sliderEnd: 900,   yearStart: 1975,  yearEnd: 2000 },
-    { sliderStart: 900, sliderEnd: 1000,  yearStart: 2000,  yearEnd: 2000 }
-  ];
-
-  function sliderToYear(sliderValue) {
-    for (const segment of TIME_SEGMENTS) {
-      if (sliderValue >= segment.sliderStart && sliderValue <= segment.sliderEnd) {
-        const segmentProgress = (sliderValue - segment.sliderStart) / (segment.sliderEnd - segment.sliderStart);
-        return Math.round(segment.yearStart + segmentProgress * (segment.yearEnd - segment.yearStart));
-      }
-    }
-    return 2000;
-  }
-
-  function updateYearLabel(targetYear, sliderValue) {
-    const label = document.getElementById('year-label');
-    const slider = document.getElementById('slider');
-    if (!label || !slider) return;
-
-    label.textContent = targetYear >= 0 ? `${targetYear}` : `${Math.abs(targetYear)} BCE`;
-
-    const sliderRect = slider.getBoundingClientRect();
-    const percent = sliderValue / 1000;
-    let thumbX = sliderRect.left + percent * sliderRect.width;
-
-    const padding = 10;
-    const labelWidth = label.offsetWidth || 60;
-    const minX = sliderRect.left + padding;
-    const maxX = sliderRect.right - labelWidth - padding;
-
-    thumbX = Math.min(Math.max(thumbX, minX), maxX);
-    label.style.left = `${thumbX}px`;
-  }
-
-  // ==================== TIMELINE CSS ====================
-  const timelineStyle = document.createElement('style');
-  timelineStyle.textContent = `
+    /* Timeline UI (fixed bottom bar) */
     #timeline {
-      position: absolute; bottom: 10px; left: 0; right: 0;
-      height: 25px; background: rgba(255,255,255,0.95);
-      display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 1000;
+      position: fixed;
+      left: 12px; right: 12px; bottom: 12px;
+      height: 44px;
+      background: rgba(255,255,255,0.96);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.14);
+      z-index: 1000;
+      backdrop-filter: blur(6px);
     }
+
+    #timeline .controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+
+    #timeline button {
+      height: 28px;
+      min-width: 28px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 10px;
+      background: #eef2f7;
+      cursor: pointer;
+      font: 600 12px/1 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      color: #111827;
+    }
+    #timeline button:hover { filter: brightness(0.98); }
+    #timeline button:active { transform: translateY(1px); }
+
+    #yearInput {
+      height: 28px;
+      width: 96px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 0 10px;
+      font: 700 12px/1 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      color: #111827;
+      outline: none;
+    }
+
+    #sliderWrap {
+      position: relative;
+      flex: 1 1 auto;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      padding: 0 6px;
+    }
+
     #slider {
-      width: 90%; height: 4px; margin: 0 20px;
-      -webkit-appearance: none; appearance: none;
-      background: #ddd; border-radius: 2px; outline: none;
+      width: 100%;
+      height: 4px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: #e5e7eb;
+      border-radius: 999px;
+      outline: none;
+      margin: 0;
     }
+
     #slider::-webkit-slider-thumb {
-      -webkit-appearance: none; appearance: none;
-      width: 18px; height: 18px; background: #37879d;
-      border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px; height: 18px;
+      background: #37879d;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
     }
     #slider::-moz-range-thumb {
-      width: 18px; height: 18px; background: #37879d;
-      border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      width: 18px; height: 18px;
+      background: #37879d;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
       border: none;
     }
+
+    /* Floating year pill above thumb */
     #year-label {
-      position: absolute; bottom: 28px;
-      font-size: 13px; font-weight: 600;
-      background: #37879d; color: white; padding: 4px 10px;
-      border-radius: 15px; white-space: nowrap;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      transition: all 0.1s ease; pointer-events: none;
+      position: fixed; /* positioned via JS using viewport coords */
+      bottom: 62px;
+      font: 800 13px/1 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      background: #37879d;
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 999px;
+      white-space: nowrap;
+      box-shadow: 0 8px 22px rgba(0,0,0,0.22);
+      pointer-events: none;
+      z-index: 1001;
     }
-  `;
-  document.head.appendChild(timelineStyle);
+  </style>
+</head>
 
-  // ==================== DATA LOADING (BUNDLES) ====================
-  // Expected generated files:
-  //   data/decades/1910s.geojson          (1500–2000)
-  //   data/centuries/1200s.geojson        (1000–1499)
-  //   data/eras/0000_0499.geojson         (0–999)
-  //   data/eras/bce_3100_2601.geojson     (-3100..-1, 500y blocks anchored at 3100)
-  const ACTIONS_SOURCE_ID = 'actions';
+<body>
+  <div id="map"></div>
 
-  function pad4(n) { return String(n).padStart(4, '0'); }
+  <script>
+    mapboxgl.accessToken = 'pk.eyJ1Ijoibm9ydGhlZGRhIiwiYSI6ImNtYmVjczJ4cTFndnEycW42cnFwbjBjbzcifQ.XYvDSeoj0uD6K8WpK5v0mQ';
 
-  function bundlePathForYear(year) {
-    // BCE: -3100..-1 => 500-year blocks anchored at 3100 BCE:
-    // bce_3100_2601, bce_2600_2101, ... , bce_100_1
-    if (year < 0) {
-      const BCE_START = 3100;
-      const abs = Math.abs(year);
-      const offset = BCE_START - abs;
-      const bucketIndex = Math.floor(Math.max(0, offset) / 500);
-      const start = BCE_START - bucketIndex * 500;
-      const end = Math.max(1, start - 499);
-      return `data/eras/bce_${start}_${end}.geojson`;
-    }
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/light-v11',
+      projection: 'mercator',
+      center: [0, 20],
+      zoom: 1,
+      minZoom: 1,
+      maxZoom: 12
+    });
 
-    // CE 0..999 => 0000_0499, 0500_0999
-    if (year >= 0 && year <= 999) {
-      const start = year - (year % 500);
-      const end = start + 499;
-      return `data/eras/${pad4(start)}_${pad4(end)}.geojson`;
-    }
+    // ==================== TIMELINE (NEW SCALE + JUMP) ====================
+    const YEAR_MIN = -3100;
+    const YEAR_MAX = 2000;
+    const SLIDER_MAX = 10000;
 
-    // 1000..1499 => centuries
-    if (year >= 1000 && year <= 1499) {
-      const century = year - (year % 100);
-      return `data/centuries/${century}s.geojson`;
-    }
+    // More resolution where humans actually hunt: 1500–2000 (especially 1800–2000)
+    // slider [0..10000] -> year [-3100..2000]
+    const TIME_SEGMENTS = [
+      { s0:    0, s1: 1800, y0: -3100, y1:    0 },   // ancient compressed
+      { s0: 1800, s1: 5200, y0:     0, y1: 1500 },   // medieval/early compressed
+      { s0: 5200, s1: 7400, y0:  1500, y1: 1800 },   // early modern
+      { s0: 7400, s1: 8600, y0:  1800, y1: 1900 },   // 19th century
+      { s0: 8600, s1: 9400, y0:  1900, y1: 1950 },   // early 20th
+      { s0: 9400, s1: 9700, y0:  1950, y1: 1975 },   // mid 20th
+      { s0: 9700, s1:10000, y0:  1975, y1: 2000 }    // late 20th
+    ];
 
-    // 1500..2000 => decades
-    if (year >= 1500 && year <= 2000) {
-      const decade = year - (year % 10);
-      return `data/decades/${decade}s.geojson`;
-    }
+    function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
-    // you said timeline closed at 2000
-    return `data/decades/2000s.geojson`;
-  }
-
-  function extractYearFromTimeValue(v) {
-    if (v == null) return null;
-    const s = String(v).trim();
-
-    // ISO: 1914-08-10 or -3100-01-01 or 1914-08 or 1914
-    let m = s.match(/^(-?\d{1,6})(?:-(\d{2})(?:-(\d{2}))?)?$/);
-    if (m) {
-      const y = parseInt(m[1], 10);
-      return Number.isFinite(y) ? y : null;
-    }
-
-    // "1914, Aug 3" or "-3100, Aug 3"
-    m = s.match(/^(-?\d+)\s*,\s*([A-Za-z]{3})\s+(\d{1,2})$/);
-    if (m) {
-      const y = parseInt(m[1], 10);
-      return Number.isFinite(y) ? y : null;
-    }
-
-    // "3100 BCE, Aug 3" -> -3100
-    m = s.match(/^(\d+)\s*BCE\s*,\s*([A-Za-z]{3})\s+(\d{1,2})$/i);
-    if (m) {
-      const y = -parseInt(m[1], 10);
-      return Number.isFinite(y) ? y : null;
-    }
-
-    return null;
-  }
-
-  function featureYear(f) {
-    const p = (f && f.properties) ? f.properties : {};
-
-    // preferred: properties.time.value
-    if (p.time && typeof p.time === 'object' && p.time.value != null) {
-      const y = extractYearFromTimeValue(p.time.value);
-      if (y != null) return y;
-    }
-
-    // legacy: properties.date
-    if (p.date != null) {
-      const y = extractYearFromTimeValue(p.date);
-      if (y != null) return y;
-    }
-
-    // fallback: properties.year
-    if (p.year != null) {
-      const y = parseInt(p.year, 10);
-      if (Number.isFinite(y)) return y;
-    }
-
-    return null;
-  }
-
-  function normalizeGeojsonForUI(gj) {
-    const features = Array.isArray(gj && gj.features) ? gj.features : [];
-    return {
-      type: 'FeatureCollection',
-      features: features.map(f => {
-        const copy = Object.assign({}, f);
-        copy.properties = Object.assign({}, f.properties || {});
-        const p = copy.properties;
-
-        // stable label
-        p.label = p.action || p.title || 'Action';
-
-        // stable id
-        if (!copy.id) copy.id = p.action_id || undefined;
-
-        // precompute year for fast filtering
-        if (p._year == null) p._year = featureYear(copy);
-
-        return copy;
-      })
-    };
-  }
-
-  // Cache bundles (LRU-ish)
-  const bundleCache = new Map(); // path -> { byYear: Map<number, Feature[]>, normalized: FeatureCollection }
-  const MAX_BUNDLES = 10;
-  let requestSeq = 0;
-  let lastLoadedYear = null;
-  let lastLoadedBundlePath = null;
-
-  async function fetchBundle(path) {
-    // touch LRU
-    if (bundleCache.has(path)) {
-      const v = bundleCache.get(path);
-      bundleCache.delete(path);
-      bundleCache.set(path, v);
-      return v;
-    }
-
-    const res = await fetch(path, { cache: 'force-cache' });
-    if (!res.ok) return null;
-
-    const raw = await res.json();
-    const normalized = normalizeGeojsonForUI(raw);
-
-    const byYear = new Map();
-    for (const f of normalized.features) {
-      const y = f && f.properties ? f.properties._year : null;
-      if (y == null) continue;
-      if (!byYear.has(y)) byYear.set(y, []);
-      byYear.get(y).push(f);
-    }
-
-    const entry = { normalized, byYear };
-
-    bundleCache.set(path, entry);
-    if (bundleCache.size > MAX_BUNDLES) {
-      const firstKey = bundleCache.keys().next().value;
-      bundleCache.delete(firstKey);
-    }
-
-    return entry;
-  }
-
-  async function setYear(targetYear) {
-    if (!map.getSource(ACTIONS_SOURCE_ID)) return;
-
-    if (targetYear === lastLoadedYear) return;
-    lastLoadedYear = targetYear;
-
-    const seq = ++requestSeq;
-    const path = bundlePathForYear(targetYear);
-    lastLoadedBundlePath = path;
-
-    try {
-      const entry = await fetchBundle(path);
-
-      // missing bundle file => show empty (no noise)
-      const featuresForYear = entry && entry.byYear ? (entry.byYear.get(targetYear) || []) : [];
-      const fc = { type: 'FeatureCollection', features: featuresForYear };
-
-      // last-response-wins guard
-      if (seq === requestSeq) {
-        map.getSource(ACTIONS_SOURCE_ID).setData(fc);
+    function sliderToYear(sv) {
+      const v = clamp(Number(sv), 0, SLIDER_MAX);
+      for (const seg of TIME_SEGMENTS) {
+        if (v >= seg.s0 && v <= seg.s1) {
+          const t = (v - seg.s0) / (seg.s1 - seg.s0 || 1);
+          return Math.round(seg.y0 + t * (seg.y1 - seg.y0));
+        }
       }
-    } catch (e) {
-      const empty = { type: 'FeatureCollection', features: [] };
-      if (seq === requestSeq) map.getSource(ACTIONS_SOURCE_ID).setData(empty);
-      console.warn('Failed to load bundle:', path, e);
-    }
-  }
-
-  function formatDisplayDate(p) {
-    // prefer time.value
-    let v = null;
-    if (p.time && typeof p.time === 'object' && p.time.value != null) v = p.time.value;
-    else if (p.date != null) v = p.date;
-
-    if (v == null) return '';
-
-    const s = String(v).trim();
-
-    // If already "YYYY, Mon D" or "-YYYY, Mon D"
-    let m = s.match(/^(-?\d+)\s*,\s*([A-Za-z]{3})\s+(\d{1,2})$/);
-    if (m) {
-      const y = parseInt(m[1], 10);
-      const mon = (m[2][0].toUpperCase() + m[2].slice(1, 3).toLowerCase());
-      const d = parseInt(m[3], 10);
-      if (!Number.isFinite(y) || !Number.isFinite(d)) return s;
-      return (y < 0) ? `${Math.abs(y)} BCE, ${mon} ${d}` : `${y}, ${mon} ${d}`;
+      return YEAR_MAX;
     }
 
-    // ISO: YYYY-MM-DD or -YYYY-MM-DD or YYYY-MM or YYYY
-    m = s.match(/^(-?\d{1,6})(?:-(\d{2})(?:-(\d{2}))?)?$/);
-    if (m) {
-      const y = parseInt(m[1], 10);
-      const mm = m[2] ? parseInt(m[2], 10) : null;
-      const dd = m[3] ? parseInt(m[3], 10) : null;
-
-      const shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      if (!Number.isFinite(y)) return s;
-
-      // year only
-      if (!mm) return (y < 0) ? `${Math.abs(y)} BCE` : `${y}`;
-
-      // year+month
-      const mon = shortMonths[mm - 1] || '';
-      if (!dd) return (y < 0) ? `${Math.abs(y)} BCE, ${mon}` : `${y}, ${mon}`;
-
-      // full date
-      return (y < 0) ? `${Math.abs(y)} BCE, ${mon} ${dd}` : `${y}, ${mon} ${dd}`;
-    }
-
-    return s;
-  }
-
-  // ==================== UI ====================
-  function initTimeline() {
-    document.body.insertAdjacentHTML('beforeend', `
-      <div id="timeline">
-        <input id="slider" type="range" min="0" max="1000" value="900" step="1">
-        <div id="year-label">2000</div>
-      </div>
-    `);
-
-    const slider = document.getElementById('slider');
-
-    let raf = null;
-    slider.addEventListener('input', (e) => {
-      const sliderValue = parseFloat(e.target.value);
-      const targetYear = sliderToYear(sliderValue);
-      updateYearLabel(targetYear, sliderValue);
-
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => setYear(targetYear));
-    });
-
-    const initialSliderValue = 850;
-    const initialYear = sliderToYear(initialSliderValue);
-    updateYearLabel(initialYear, initialSliderValue);
-    setYear(initialYear);
-  }
-
-  // ==================== MAP ====================
-  map.on('load', () => {
-    map.addSource(ACTIONS_SOURCE_ID, {
-      type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] },
-      cluster: true,
-    });
-
-    map.addLayer({
-      id: 'actions-clusters',
-      type: 'circle',
-      source: ACTIONS_SOURCE_ID,
-      filter: ['has', 'point_count'],
-      paint: {
-        'circle-color': ['step', ['get', 'point_count'], '#51bbd6', 10, '#f1f075', 30, '#f28cb1'],
-        'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 30, 25],
-        'circle-opacity': 0.9,
-        'circle-stroke-color': '#fff',
-        'circle-stroke-width': 1
+    function yearToSlider(y) {
+      const yr = clamp(Math.round(Number(y)), YEAR_MIN, YEAR_MAX);
+      for (const seg of TIME_SEGMENTS) {
+        if (yr >= seg.y0 && yr <= seg.y1) {
+          const t = (yr - seg.y0) / (seg.y1 - seg.y0 || 1);
+          return Math.round(seg.s0 + t * (seg.s1 - seg.s0));
+        }
       }
-    });
+      return SLIDER_MAX;
+    }
 
-    map.addLayer({
-      id: 'actions-cluster-count',
-      type: 'symbol',
-      source: ACTIONS_SOURCE_ID,
-      filter: ['has', 'point_count'],
-      layout: {
-        'text-field': ['get', 'point_count_abbreviated'],
-        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-        'text-size': 12
-      },
-      paint: { 'text-color': '#000000' }
-    });
+    function yearLabelText(y) {
+      return (y < 0) ? `${Math.abs(y)} BCE` : `${y}`;
+    }
 
-    map.addLayer({
-      id: 'actions-unclustered',
-      type: 'circle',
-      source: ACTIONS_SOURCE_ID,
-      filter: ['!', ['has', 'point_count']],
-      paint: {
-        'circle-radius': 8,
-        'circle-color': '#37879d',
-        'circle-opacity': 0.9,
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 1
+    function positionYearPill(labelEl, sliderEl, sliderValue) {
+      const rect = sliderEl.getBoundingClientRect();
+      const t = clamp(Number(sliderValue) / SLIDER_MAX, 0, 1);
+      let x = rect.left + t * rect.width;
+
+      // clamp pill inside viewport/slider width
+      const pillW = labelEl.offsetWidth || 80;
+      const pad = 12;
+      const minX = rect.left + pad;
+      const maxX = rect.right - pillW - pad;
+      x = Math.min(Math.max(x, minX), maxX);
+
+      labelEl.style.left = `${x}px`;
+    }
+
+    // ==================== DATA LOADING (BUNDLES) ====================
+    // Expected generated files:
+    //   data/decades/1910s.geojson          (1500–2000)
+    //   data/centuries/1200s.geojson        (1000–1499)
+    //   data/eras/0000_0499.geojson         (0–999)
+    //   data/eras/bce_3100_2601.geojson     (-3100..-1, 500y blocks anchored at 3100)
+    const ACTIONS_SOURCE_ID = 'actions';
+
+    function pad4(n) { return String(n).padStart(4, '0'); }
+
+    function bundlePathForYear(year) {
+      if (year < 0) {
+        const BCE_START = 3100;
+        const abs = Math.abs(year);
+        const offset = BCE_START - abs;
+        const bucketIndex = Math.floor(Math.max(0, offset) / 500);
+        const start = BCE_START - bucketIndex * 500;
+        const end = Math.max(1, start - 499);
+        return `data/eras/bce_${start}_${end}.geojson`;
       }
-    });
 
-    // click cluster -> expand
-    map.on('click', 'actions-clusters', (e) => {
-      const f = map.queryRenderedFeatures(e.point, { layers: ['actions-clusters'] })[0];
-      if (!f) return;
-      const clusterId = f.properties.cluster_id;
-      map.getSource(ACTIONS_SOURCE_ID).getClusterExpansionZoom(clusterId, (err, zoom) => {
-        if (err) return;
-        map.easeTo({ center: f.geometry.coordinates, zoom });
-      });
-    });
+      if (year >= 0 && year <= 999) {
+        const start = year - (year % 500);
+        const end = start + 499;
+        return `data/eras/${pad4(start)}_${pad4(end)}.geojson`;
+      }
 
-    // click point -> popup
-    map.on('click', 'actions-unclustered', (e) => {
-      const f = map.queryRenderedFeatures(e.point, { layers: ['actions-unclustered'] })[0];
-      if (!f) return;
-      const p = f.properties || {};
+      if (year >= 1000 && year <= 1499) {
+        const century = year - (year % 100);
+        return `data/centuries/${century}s.geojson`;
+      }
 
-      const title = p.action || p.label || 'Action';
-      const dateStr = formatDisplayDate(p);
+      if (year >= 1500 && year <= 2000) {
+        const decade = year - (year % 10);
+        return `data/decades/${decade}s.geojson`;
+      }
 
-      const location = p.place_name || p.location || p.place || p.location_name || p.site || p.city || '';
-      const country = p.place_country || p.country || '';
-      const countriesList = (p.countries && typeof p.countries === 'string') ? p.countries : (Array.isArray(p.countries) ? p.countries.join(', ') : country);
+      return `data/decades/2000s.geojson`;
+    }
 
-      const linkHref = p.ref_url || p.wiki || p.wikipedia || p.url || '';
-      const link = linkHref ? `<a href="${linkHref}" target="_blank" style="color: #1e40af;">Reference</a>` : '';
+    function extractYearFromTimeValue(v) {
+      if (v == null) return null;
+      const s = String(v).trim();
 
-      const html = `
-        <div style="max-width: 280px; padding: 8px;">
-          <strong style="font-size: 14px;">${title}</strong><br>
-          ${dateStr ? dateStr + '<br>' : ''}
-          ${location ? location + '<br>' : ''}
-          ${countriesList ? countriesList + '<br>' : ''}
-          ${link}
+      let m = s.match(/^(-?\d{1,6})(?:-(\d{2})(?:-(\d{2}))?)?$/);
+      if (m) {
+        const y = parseInt(m[1], 10);
+        return Number.isFinite(y) ? y : null;
+      }
+
+      m = s.match(/^(-?\d+)\s*,\s*([A-Za-z]{3})\s+(\d{1,2})$/);
+      if (m) {
+        const y = parseInt(m[1], 10);
+        return Number.isFinite(y) ? y : null;
+      }
+
+      m = s.match(/^(\d+)\s*BCE\s*,\s*([A-Za-z]{3})\s+(\d{1,2})$/i);
+      if (m) {
+        const y = -parseInt(m[1], 10);
+        return Number.isFinite(y) ? y : null;
+      }
+
+      return null;
+    }
+
+    function featureYear(f) {
+      const p = (f && f.properties) ? f.properties : {};
+
+      if (p.time && typeof p.time === 'object' && p.time.value != null) {
+        const y = extractYearFromTimeValue(p.time.value);
+        if (y != null) return y;
+      }
+
+      if (p.date != null) {
+        const y = extractYearFromTimeValue(p.date);
+        if (y != null) return y;
+      }
+
+      if (p.year != null) {
+        const y = parseInt(p.year, 10);
+        if (Number.isFinite(y)) return y;
+      }
+
+      return null;
+    }
+
+    function normalizeGeojsonForUI(gj) {
+      const features = Array.isArray(gj && gj.features) ? gj.features : [];
+      return {
+        type: 'FeatureCollection',
+        features: features.map(f => {
+          const copy = Object.assign({}, f);
+          copy.properties = Object.assign({}, f.properties || {});
+          const p = copy.properties;
+
+          p.label = p.action || p.title || 'Action';
+          if (!copy.id) copy.id = p.action_id || undefined;
+          if (p._year == null) p._year = featureYear(copy);
+
+          return copy;
+        })
+      };
+    }
+
+    const bundleCache = new Map(); // path -> { byYear: Map<number, Feature[]>, normalized: FeatureCollection }
+    const MAX_BUNDLES = 10;
+    let requestSeq = 0;
+    let lastLoadedYear = null;
+
+    async function fetchBundle(path) {
+      if (bundleCache.has(path)) {
+        const v = bundleCache.get(path);
+        bundleCache.delete(path);
+        bundleCache.set(path, v);
+        return v;
+      }
+
+      const res = await fetch(path, { cache: 'force-cache' });
+      if (!res.ok) return null;
+
+      const raw = await res.json();
+      const normalized = normalizeGeojsonForUI(raw);
+
+      const byYear = new Map();
+      for (const f of normalized.features) {
+        const y = f && f.properties ? f.properties._year : null;
+        if (y == null) continue;
+        if (!byYear.has(y)) byYear.set(y, []);
+        byYear.get(y).push(f);
+      }
+
+      const entry = { normalized, byYear };
+
+      bundleCache.set(path, entry);
+      if (bundleCache.size > MAX_BUNDLES) {
+        const firstKey = bundleCache.keys().next().value;
+        bundleCache.delete(firstKey);
+      }
+
+      return entry;
+    }
+
+    async function setYear(targetYear) {
+      if (!map.getSource(ACTIONS_SOURCE_ID)) return;
+
+      const y = clamp(Math.round(Number(targetYear)), YEAR_MIN, YEAR_MAX);
+      if (y === lastLoadedYear) return;
+      lastLoadedYear = y;
+
+      const seq = ++requestSeq;
+      const path = bundlePathForYear(y);
+
+      try {
+        const entry = await fetchBundle(path);
+        const featuresForYear = entry && entry.byYear ? (entry.byYear.get(y) || []) : [];
+        const fc = { type: 'FeatureCollection', features: featuresForYear };
+
+        if (seq === requestSeq) {
+          map.getSource(ACTIONS_SOURCE_ID).setData(fc);
+        }
+      } catch (e) {
+        const empty = { type: 'FeatureCollection', features: [] };
+        if (seq === requestSeq) map.getSource(ACTIONS_SOURCE_ID).setData(empty);
+        console.warn('Failed to load bundle:', path, e);
+      }
+    }
+
+    function formatDisplayDate(p) {
+      let v = null;
+      if (p.time && typeof p.time === 'object' && p.time.value != null) v = p.time.value;
+      else if (p.date != null) v = p.date;
+      if (v == null) return '';
+
+      const s = String(v).trim();
+
+      let m = s.match(/^(-?\d+)\s*,\s*([A-Za-z]{3})\s+(\d{1,2})$/);
+      if (m) {
+        const y = parseInt(m[1], 10);
+        const mon = (m[2][0].toUpperCase() + m[2].slice(1, 3).toLowerCase());
+        const d = parseInt(m[3], 10);
+        if (!Number.isFinite(y) || !Number.isFinite(d)) return s;
+        return (y < 0) ? `${Math.abs(y)} BCE, ${mon} ${d}` : `${y}, ${mon} ${d}`;
+      }
+
+      m = s.match(/^(-?\d{1,6})(?:-(\d{2})(?:-(\d{2}))?)?$/);
+      if (m) {
+        const y = parseInt(m[1], 10);
+        const mm = m[2] ? parseInt(m[2], 10) : null;
+        const dd = m[3] ? parseInt(m[3], 10) : null;
+
+        const shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        if (!Number.isFinite(y)) return s;
+
+        if (!mm) return (y < 0) ? `${Math.abs(y)} BCE` : `${y}`;
+
+        const mon = shortMonths[mm - 1] || '';
+        if (!dd) return (y < 0) ? `${Math.abs(y)} BCE, ${mon}` : `${y}, ${mon}`;
+
+        return (y < 0) ? `${Math.abs(y)} BCE, ${mon} ${dd}` : `${y}, ${mon} ${dd}`;
+      }
+
+      return s;
+    }
+
+    // ==================== UI ====================
+    function initTimeline() {
+      document.body.insertAdjacentHTML('beforeend', `
+        <div id="timeline">
+          <div class="controls">
+            <button id="yMinus10" title="-10 years">−10</button>
+            <button id="yMinus1"  title="-1 year">−</button>
+            <input id="yearInput" type="number" min="${YEAR_MIN}" max="${YEAR_MAX}" step="1" value="2000" />
+            <button id="yPlus1"   title="+1 year">+</button>
+            <button id="yPlus10"  title="+10 years">+10</button>
+          </div>
+
+          <div id="sliderWrap">
+            <input id="slider" type="range" min="0" max="${SLIDER_MAX}" value="${SLIDER_MAX}" step="1" />
+          </div>
         </div>
-      `;
-      new mapboxgl.Popup({ offset: 15 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
-    });
+        <div id="year-label">2000</div>
+      `);
 
-    initTimeline();
-  });
-</script>
+      const slider = document.getElementById('slider');
+      const yearInput = document.getElementById('yearInput');
+      const yearLabel = document.getElementById('year-label');
+
+      let raf = null;
+
+      function applyYear(y) {
+        const yr = clamp(Math.round(Number(y)), YEAR_MIN, YEAR_MAX);
+        const sv = yearToSlider(yr);
+
+        slider.value = String(sv);
+        yearInput.value = String(yr);
+
+        yearLabel.textContent = yearLabelText(yr);
+        positionYearPill(yearLabel, slider, sv);
+
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => setYear(yr));
+      }
+
+      function adjust(delta) {
+        const current = clamp(parseInt(yearInput.value || '0', 10), YEAR_MIN, YEAR_MAX);
+        applyYear(current + delta);
+      }
+
+      // Slider drag
+      slider.addEventListener('input', (e) => {
+        const sv = Number(e.target.value);
+        const yr = sliderToYear(sv);
+        yearInput.value = String(yr);
+        yearLabel.textContent = yearLabelText(yr);
+        positionYearPill(yearLabel, slider, sv);
+
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => setYear(yr));
+      });
+
+      // Jump-to-year input (Enter or blur)
+      yearInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          applyYear(parseInt(yearInput.value, 10));
+          yearInput.blur();
+        }
+      });
+      yearInput.addEventListener('change', () => applyYear(parseInt(yearInput.value, 10)));
+
+      // Buttons
+      document.getElementById('yMinus10').addEventListener('click', () => adjust(-10));
+      document.getElementById('yMinus1').addEventListener('click', () => adjust(-1));
+      document.getElementById('yPlus1').addEventListener('click', () => adjust(1));
+      document.getElementById('yPlus10').addEventListener('click', () => adjust(10));
+
+      // Keyboard anywhere (ignore when typing in input)
+      window.addEventListener('keydown', (e) => {
+        if (document.activeElement === yearInput) return;
+
+        const isLeft = (e.key === 'ArrowLeft');
+        const isRight = (e.key === 'ArrowRight');
+        if (!isLeft && !isRight) return;
+
+        e.preventDefault();
+
+        const current = clamp(parseInt(yearInput.value || '0', 10), YEAR_MIN, YEAR_MAX);
+        let step = 1;
+
+        // smart step
+        if (e.altKey) step = 100;
+        else if (e.shiftKey) step = 10;
+        else {
+          if (current < 0) step = 25;
+          else if (current < 1500) step = 10;
+          else if (current < 1800) step = 5;
+          else step = 1;
+        }
+
+        applyYear(current + (isRight ? step : -step));
+      });
+
+      // Shift+wheel = fine scrub (works great on trackpad)
+      window.addEventListener('wheel', (e) => {
+        if (!e.shiftKey) return;
+        e.preventDefault();
+
+        const current = clamp(parseInt(yearInput.value || '0', 10), YEAR_MIN, YEAR_MAX);
+        let step = 1;
+
+        if (current < 0) step = 25;
+        else if (current < 1500) step = 10;
+        else if (current < 1800) step = 5;
+        else step = 1;
+
+        applyYear(current + (e.deltaY > 0 ? -step : step));
+      }, { passive: false });
+
+      // Keep pill aligned if viewport changes
+      window.addEventListener('resize', () => {
+        const sv = Number(slider.value);
+        positionYearPill(yearLabel, slider, sv);
+      });
+
+      // Start at 2000 (change this to any year you want)
+      applyYear(2000);
+    }
+
+    // ==================== MAP ====================
+    map.on('load', () => {
+      map.addSource(ACTIONS_SOURCE_ID, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+        cluster: true,
+      });
+
+      map.addLayer({
+        id: 'actions-clusters',
+        type: 'circle',
+        source: ACTIONS_SOURCE_ID,
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': ['step', ['get', 'point_count'], '#51bbd6', 10, '#f1f075', 30, '#f28cb1'],
+          'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 30, 25],
+          'circle-opacity': 0.9,
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 1
+        }
+      });
+
+      map.addLayer({
+        id: 'actions-cluster-count',
+        type: 'symbol',
+        source: ACTIONS_SOURCE_ID,
+        filter: ['has', 'point_count'],
+        layout: {
+          'text-field': ['get', 'point_count_abbreviated'],
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-size': 12
+        },
+        paint: { 'text-color': '#000000' }
+      });
+
+      map.addLayer({
+        id: 'actions-unclustered',
+        type: 'circle',
+        source: ACTIONS_SOURCE_ID,
+        filter: ['!', ['has', 'point_count']],
+        paint: {
+          'circle-radius': 8,
+          'circle-color': '#37879d',
+          'circle-opacity': 0.9,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 1
+        }
+      });
+
+      map.on('click', 'actions-clusters', (e) => {
+        const f = map.queryRenderedFeatures(e.point, { layers: ['actions-clusters'] })[0];
+        if (!f) return;
+        const clusterId = f.properties.cluster_id;
+        map.getSource(ACTIONS_SOURCE_ID).getClusterExpansionZoom(clusterId, (err, zoom) => {
+          if (err) return;
+          map.easeTo({ center: f.geometry.coordinates, zoom });
+        });
+      });
+
+      map.on('click', 'actions-unclustered', (e) => {
+        const f = map.queryRenderedFeatures(e.point, { layers: ['actions-unclustered'] })[0];
+        if (!f) return;
+        const p = f.properties || {};
+
+        const title = p.action || p.label || 'Action';
+        const dateStr = formatDisplayDate(p);
+
+        const location = p.place_name || p.location || p.place || p.location_name || p.site || p.city || '';
+        const country = p.place_country || p.country || '';
+        const countriesList = (p.countries && typeof p.countries === 'string')
+          ? p.countries
+          : (Array.isArray(p.countries) ? p.countries.join(', ') : country);
+
+        const linkHref = p.ref_url || p.wiki || p.wikipedia || p.url || '';
+        const link = linkHref ? `<a href="${linkHref}" target="_blank" style="color:#1e40af;">Reference</a>` : '';
+
+        const html = `
+          <div style="max-width: 280px; padding: 8px;">
+            <strong style="font-size: 14px;">${title}</strong><br>
+            ${dateStr ? dateStr + '<br>' : ''}
+            ${location ? location + '<br>' : ''}
+            ${countriesList ? countriesList + '<br>' : ''}
+            ${link}
+          </div>
+        `;
+        new mapboxgl.Popup({ offset: 15 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+      });
+
+      initTimeline();
+    });
+  </script>
 </body>
 </html>
