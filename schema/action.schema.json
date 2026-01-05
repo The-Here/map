@@ -21,27 +21,18 @@
       "minLength": 1
     },
 
-    "place": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "lat", "lon"],
-      "properties": {
-        "name": {
-          "type": "string",
-          "minLength": 1
-        },
-        "lat": {
-          "type": "number",
-          "minimum": -90,
-          "maximum": 90
-        },
-        "lon": {
-          "type": "number",
-          "minimum": -180,
-          "maximum": 180
-        }
-      }
-    },
+   "place": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "country", "lat", "lon"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "country": { "type": "string", "minLength": 1 },
+    "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+    "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+  }
+}
+
 
     "time": {
       "type": "object",
