@@ -1,1 +1,25 @@
+{
+  "id": "act_liege_bombing_1914_08_10",
+  "action": "Bombing of Liège",
+  "place": {
+    "name": "Liège",
+    "country": "Belgium",
+    "lat": 50.6326,
+    "lon": 5.5797
+  },
+  "time": {
+    "value": "1914-08-10",
+    "precision": "day"
+  },
+  "references": {
+    "primary": {
+      "type": "wikipedia_oldid",
+      "url": "https://en.wikipedia.org/w/index.php?title=Battle_of_Li%C3%A8ge&oldid=123456789",
+      "content_hash": {
+        "algo": "sha256",
+        "value": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  }
+}
 
