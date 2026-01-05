@@ -3,37 +3,41 @@
   "title": "Atomic Action",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "id",
-    "action",
-    "place",
-    "time",
-    "references"
-  ],
+  "required": ["id", "action", "place", "time", "references"],
   "properties": {
     "id": {
       "type": "string",
       "pattern": "^act_[0-9A-Za-z_\\-]+$"
     },
-
     "action": {
       "type": "string",
       "minLength": 1
     },
-
-   "place": {
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["name", "country", "lat", "lon"],
-  "properties": {
-    "name": { "type": "string", "minLength": 1 },
-    "country": { "type": "string", "minLength": 1 },
-    "lat": { "type": "number", "minimum": -90, "maximum": 90 },
-    "lon": { "type": "number", "minimum": -180, "maximum": 180 }
-  }
-}
-
-
+    "place": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "country", "lat", "lon"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "country": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lat": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "lon": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        }
+      }
+    },
     "time": {
       "type": "object",
       "additionalProperties": false,
@@ -45,36 +49,46 @@
         },
         "precision": {
           "type": "string",
-          "enum": [
-            "day",
-            "month",
-            "year",
-            "century",
-            "era"
-          ]
+          "enum": ["day", "month", "year", "century", "era"]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "precision": { "const": "day" } } },
+          "then": { "properties": { "value": { "pattern": "^-?\\d{1,6}-\\d{2}-\\d{2}$" } } }
+        },
+        {
+          "if": { "properties": { "precision": { "const": "month" } } },
+          "then": { "properties": { "value": { "pattern": "^-?\\d{1,6}-\\d{2}$" } } }
+        },
+        {
+          "if": { "properties": { "precision": { "const": "year" } } },
+          "then": { "properties": { "value": { "pattern": "^-?\\d{1,6}$" } } }
+        },
+        {
+          "if": { "properties": { "precision": { "const": "century" } } },
+          "then": { "properties": { "value": { "pattern": "^-?\\d{1,4}$" } } }
+        },
+        {
+          "if": { "properties": { "precision": { "const": "era" } } },
+          "then": { "properties": { "value": { "enum": ["BCE", "CE"] } } }
+        }
+      ]
     },
-
     "references": {
       "type": "object",
       "additionalProperties": false,
       "required": ["primary"],
       "properties": {
-        "primary": {
-          "$ref": "#/definitions/reference"
-        },
+        "primary": { "$ref": "#/definitions/reference" },
         "secondary": {
           "type": "array",
           "maxItems": 2,
-          "items": {
-            "$ref": "#/definitions/reference"
-          }
+          "items": { "$ref": "#/definitions/reference" }
         }
       }
     }
   },
-
   "definitions": {
     "reference": {
       "type": "object",
@@ -94,9 +108,7 @@
           "additionalProperties": false,
           "required": ["algo", "value"],
           "properties": {
-            "algo": {
-              "const": "sha256"
-            },
+            "algo": { "const": "sha256" },
             "value": {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$"
@@ -107,4 +119,3 @@
     }
   }
 }
-
